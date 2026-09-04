@@ -16,6 +16,14 @@ def test_build_prompt_includes_existing_comments():
     assert "[Alice] please add tests" in prompt
 
 
+def test_build_prompt_includes_review_dimensions_and_output_structure():
+    prompt = build_prompt("my-repo", 42, "")
+    for dimension in ("Silent failures", "Test coverage", "Comment accuracy", "Simplification"):
+        assert dimension in prompt
+    for section in ("## Critical Issues", "## Important Issues", "## Suggestions", "## Strengths"):
+        assert section in prompt
+
+
 def test_build_prompt_no_comments_placeholder():
     prompt = build_prompt("my-repo", 42, "")
     assert "(none)" in prompt
