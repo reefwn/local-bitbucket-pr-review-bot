@@ -1,0 +1,39 @@
+services:
+  mcp:
+    build: .
+    container_name: bitbucket-pr-mcp
+    env_file: .env
+    command: ["-m", "src.mcp_server.server"]
+    ports:
+      - "7390:7390"
+    restart: unless-stopped
+
+  bot:
+    build: .
+    container_name: bitbucket-pr-bot
+    env_file: .env
+    command: ["-m", "src.bot.main"]
+    volumes:
+      - reviewed-prs:/data
+      - claude-auth:/root/.claude
+    depends_on:
+      - mcp
+    restart: unless-stopped
+
+  web:
+    build: .
+    container_name: bitbucket-pr-web
+    env_file: .env
+    command: ["-m", "uvicorn", "src.web.app:app_factory", "--factory", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - reviewed-prs:/data
+      - claude-auth:/root/.claude
+    depends_on:
+      - mcp
+    restart: unless-stopped
+
+volumes:
+  reviewed-prs:
+  claude-auth:
