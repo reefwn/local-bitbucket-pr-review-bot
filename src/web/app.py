@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
@@ -74,13 +75,16 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-        comments_data = await client.get(
-            f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr_id}/comments"
-        )
-        comments_text = _format_comments(comments_data)
-        result = run_review(repo_slug, pr_id, comments_text, config.mcp_config_path)
-        mark_reviewed(config.db_path, repo_slug, pr_id, datetime.now(timezone.utc).isoformat())
-        return {"status": "reviewed", "repo_slug": repo_slug, "pr_id": pr_id, "claude_result": result}
+        try:
+            comments_data = await client.get(
+                f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr_id}/comments"
+            )
+            comments_text = _format_comments(comments_data)
+            result = await asyncio.to_thread(run_review, repo_slug, pr_id, comments_text, config.mcp_config_path)
+            mark_reviewed(config.db_path, repo_slug, pr_id, datetime.now(timezone.utc).isoformat())
+            return {"status": "reviewed", "repo_slug": repo_slug, "pr_id": pr_id, "claude_result": result}
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Review failed: {e}")
 
     return app
 

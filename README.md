@@ -12,10 +12,12 @@ immediate review by pasting a PR URL.
 2. Build the image: `docker compose build`
 3. One-time Claude login (uses your Claude Pro subscription, not an API key):
    ```
-   docker compose run --rm bot claude login
+   docker compose run --rm --entrypoint claude bot auth login
    ```
    Follow the OAuth flow in your browser. The resulting credentials persist
-   on the `claude-auth` volume, so this is only needed once.
+   on the `claude-auth` volume, so this is only needed once. If the OAuth
+   browser redirect can't reach the container cleanly, use `claude setup-token`
+   instead to generate a token non-interactively for headless use.
 4. Start everything: `docker compose up -d`
 5. Open `http://localhost:8080` to trigger a review manually, or wait for
    the next poll cycle for newly-opened PRs to be reviewed automatically.

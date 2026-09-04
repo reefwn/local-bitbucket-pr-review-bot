@@ -50,6 +50,14 @@ def test_run_review_invokes_claude_with_expected_args(tmp_path):
     assert "json" in args
 
 
+def test_run_review_passes_timeout(tmp_path):
+    config_path = str(tmp_path / "mcp-config.json")
+    fake_result = MagicMock(stdout=json.dumps({"result": "posted comment"}))
+    with patch("subprocess.run", return_value=fake_result) as mock_run:
+        run_review("my-repo", 42, "", config_path)
+    assert mock_run.call_args[1]["timeout"] == 600
+
+
 def test_run_review_propagates_failure(tmp_path):
     config_path = str(tmp_path / "mcp-config.json")
     with patch(

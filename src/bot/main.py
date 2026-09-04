@@ -15,9 +15,14 @@ async def resolve_repo_slugs(client: BitbucketClient, workspace: str, project_ke
     """Resolve Bitbucket Project keys into member repo slugs."""
     slugs: list[str] = []
     for key in project_keys:
-        data = await client.get(f"/repositories/{workspace}", params={"q": f'project.key="{key}"'})
-        slugs.extend(repo["slug"] for repo in data.get("values", []))
-    return slugs
+        try:
+            data = await client.get(
+                f"/repositories/{workspace}", params={"q": f'project.key="{key}"', "pagelen": 100}
+            )
+            slugs.extend(repo["slug"] for repo in data.get("values", []))
+        except Exception:
+            logger.exception("Failed to resolve repos for project key %s", key)
+    return list(dict.fromkeys(slugs))
 
 
 def _format_comments(comments_data: dict) -> str:
@@ -33,23 +38,27 @@ async def run_cycle(config: Config, client: BitbucketClient) -> None:
     now = datetime.now(timezone.utc)
     repo_slugs = await resolve_repo_slugs(client, config.bitbucket_workspace, config.project_keys)
     for repo_slug in repo_slugs:
-        data = await client.get(
-            f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests",
-            params={"state": "OPEN"},
-        )
-        prs = filter_open(data.get("values", []))
-        prs = filter_recent(prs, now, config.poll_interval_minutes)
-        prs = filter_unreviewed(prs, config.db_path, repo_slug)
-        for pr in prs:
-            comments_data = await client.get(
-                f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr['id']}/comments"
+        try:
+            data = await client.get(
+                f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests",
+                params={"state": "OPEN", "pagelen": 100},
             )
-            comments_text = _format_comments(comments_data)
-            try:
-                run_review(repo_slug, pr["id"], comments_text, config.mcp_config_path)
-                mark_reviewed(config.db_path, repo_slug, pr["id"], now.isoformat())
-            except Exception:
-                logger.exception("Review failed for %s PR #%s", repo_slug, pr["id"])
+            prs = filter_open(data.get("values", []))
+            prs = filter_recent(prs, now, config.poll_interval_minutes * 2)
+            prs = filter_unreviewed(prs, config.db_path, repo_slug)
+            for pr in prs:
+                try:
+                    comments_data = await client.get(
+                        f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr['id']}/comments"
+                    )
+                    comments_text = _format_comments(comments_data)
+                    await asyncio.to_thread(run_review, repo_slug, pr["id"], comments_text, config.mcp_config_path)
+                    mark_reviewed(config.db_path, repo_slug, pr["id"], now.isoformat())
+                except Exception:
+                    logger.exception("Review failed for %s PR #%s", repo_slug, pr["id"])
+        except Exception:
+            logger.exception("Failed to process repo %s", repo_slug)
+            continue
 
 
 async def main() -> None:
@@ -60,7 +69,10 @@ async def main() -> None:
     client = BitbucketClient(config)
     try:
         while True:
-            await run_cycle(config, client)
+            try:
+                await run_cycle(config, client)
+            except Exception:
+                logger.exception("Poll cycle failed")
             await asyncio.sleep(config.poll_interval_minutes * 60)
     finally:
         await client.close()

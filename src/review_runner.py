@@ -44,5 +44,6 @@ def run_review(repo_slug: str, pr_id: int, existing_comments: str, mcp_config_pa
         capture_output=True,
         text=True,
         check=True,
+        timeout=600,
     )
     return json.loads(result.stdout)

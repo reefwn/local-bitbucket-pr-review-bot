@@ -64,3 +64,22 @@ def test_review_success_marks_reviewed(tmp_path):
 
     from src.db import is_reviewed
     assert is_reviewed(config.db_path, "my-repo", 5) is True
+
+
+def test_review_returns_json_error_when_run_review_fails(tmp_path):
+    config = _config(tmp_path)
+    fake_client = AsyncMock()
+    fake_client.get.return_value = {"values": []}
+    app = create_app(config, client=fake_client)
+
+    with patch("src.web.app.run_review") as mock_run_review:
+        mock_run_review.side_effect = Exception("claude blew up")
+        client = TestClient(app)
+        resp = client.post(
+            "/review",
+            json={"pr_url": "https://bitbucket.org/my-ws/my-repo/pull-requests/5"},
+        )
+
+    assert resp.status_code == 502
+    body = resp.json()
+    assert "claude blew up" in body["detail"]
