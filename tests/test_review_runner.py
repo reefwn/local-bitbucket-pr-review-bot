@@ -16,9 +16,24 @@ def test_build_prompt_includes_existing_comments():
     assert "[Alice] please add tests" in prompt
 
 
+def test_build_prompt_includes_review_dimensions_and_output_structure():
+    prompt = build_prompt("my-repo", 42, "")
+    for dimension in ("Silent failures", "Test coverage", "Comment accuracy", "Simplification"):
+        assert dimension in prompt
+    for section in ("## Critical Issues", "## Important Issues", "## Suggestions", "## Strengths"):
+        assert section in prompt
+
+
 def test_build_prompt_no_comments_placeholder():
     prompt = build_prompt("my-repo", 42, "")
     assert "(none)" in prompt
+
+
+def test_build_prompt_instructs_approve_or_request_changes():
+    prompt = build_prompt("my-repo", 42, "")
+    assert "bitbucket_approve_pr" in prompt
+    assert "bitbucket_request_changes_pr" in prompt
+    assert "Never decline or close the PR" in prompt
 
 
 def test_write_mcp_config(tmp_path):
@@ -45,7 +60,10 @@ def test_run_review_invokes_claude_with_expected_args(tmp_path):
     assert "--mcp-config" in args
     assert config_path in args
     assert "--allowedTools" in args
-    assert "mcp__bitbucket-pr__bitbucket_create_pr_comment" in args[args.index("--allowedTools") + 1]
+    allowed_tools = args[args.index("--allowedTools") + 1]
+    assert "mcp__bitbucket-pr__bitbucket_create_pr_comment" in allowed_tools
+    assert "mcp__bitbucket-pr__bitbucket_approve_pr" in allowed_tools
+    assert "mcp__bitbucket-pr__bitbucket_request_changes_pr" in allowed_tools
     assert "--output-format" in args
     assert "json" in args
 

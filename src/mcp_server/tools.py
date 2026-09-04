@@ -86,3 +86,17 @@ def register(mcp: FastMCP) -> None:
             f"/repositories/{ws}/{repo_slug}/pullrequests/{pr_id}/comments",
             json={"content": {"raw": content}},
         )
+
+    @mcp.tool()
+    async def bitbucket_approve_pr(repo_slug: str, pr_id: int) -> str:
+        """Approve a pull request as the configured Bitbucket account."""
+        ws = config.bitbucket_workspace
+        await client.post(f"/repositories/{ws}/{repo_slug}/pullrequests/{pr_id}/approve", json={})
+        return f"PR #{pr_id} approved."
+
+    @mcp.tool()
+    async def bitbucket_request_changes_pr(repo_slug: str, pr_id: int) -> str:
+        """Request changes on a pull request as the configured Bitbucket account."""
+        ws = config.bitbucket_workspace
+        await client.post(f"/repositories/{ws}/{repo_slug}/pullrequests/{pr_id}/request-changes", json={})
+        return f"Changes requested on PR #{pr_id}."
