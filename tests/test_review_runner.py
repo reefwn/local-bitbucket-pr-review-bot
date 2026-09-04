@@ -29,6 +29,13 @@ def test_build_prompt_no_comments_placeholder():
     assert "(none)" in prompt
 
 
+def test_build_prompt_instructs_approve_or_request_changes():
+    prompt = build_prompt("my-repo", 42, "")
+    assert "bitbucket_approve_pr" in prompt
+    assert "bitbucket_request_changes_pr" in prompt
+    assert "Never decline or close the PR" in prompt
+
+
 def test_write_mcp_config(tmp_path):
     path = str(tmp_path / "mcp-config.json")
     write_mcp_config(path, "http://mcp:7390/mcp")
@@ -53,7 +60,10 @@ def test_run_review_invokes_claude_with_expected_args(tmp_path):
     assert "--mcp-config" in args
     assert config_path in args
     assert "--allowedTools" in args
-    assert "mcp__bitbucket-pr__bitbucket_create_pr_comment" in args[args.index("--allowedTools") + 1]
+    allowed_tools = args[args.index("--allowedTools") + 1]
+    assert "mcp__bitbucket-pr__bitbucket_create_pr_comment" in allowed_tools
+    assert "mcp__bitbucket-pr__bitbucket_approve_pr" in allowed_tools
+    assert "mcp__bitbucket-pr__bitbucket_request_changes_pr" in allowed_tools
     assert "--output-format" in args
     assert "json" in args
 

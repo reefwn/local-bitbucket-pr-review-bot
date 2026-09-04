@@ -5,7 +5,9 @@ _ALLOWED_TOOLS = (
     "mcp__bitbucket-pr__bitbucket_get_pr,"
     "mcp__bitbucket-pr__bitbucket_get_pr_diff,"
     "mcp__bitbucket-pr__bitbucket_list_pr_comments,"
-    "mcp__bitbucket-pr__bitbucket_create_pr_comment"
+    "mcp__bitbucket-pr__bitbucket_create_pr_comment,"
+    "mcp__bitbucket-pr__bitbucket_approve_pr,"
+    "mcp__bitbucket-pr__bitbucket_request_changes_pr"
 )
 
 
@@ -16,6 +18,10 @@ def build_prompt(repo_slug: str, pr_id: int, existing_comments: str) -> str:
         f"Review pull request #{pr_id} in the '{repo_slug}' Bitbucket repository. "
         "Fetch its diff and existing comments using the available Bitbucket tools, "
         "then post a single review comment via bitbucket_create_pr_comment.\n\n"
+        "After posting the comment, take one action: if the review found zero "
+        "Critical and zero Important issues, call bitbucket_approve_pr; if it found "
+        "any Critical or Important issue, call bitbucket_request_changes_pr instead. "
+        "Never decline or close the PR.\n\n"
         "Review across these dimensions (adapted from the pr-review-toolkit:review-pr "
         "Claude Code skill, condensed into one pass since this runs headless against a "
         "diff rather than a local checkout):\n"

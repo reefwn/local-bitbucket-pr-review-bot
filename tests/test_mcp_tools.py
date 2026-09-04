@@ -11,6 +11,8 @@ bitbucket_get_pr = _tools["bitbucket_get_pr"]
 bitbucket_get_pr_diff = _tools["bitbucket_get_pr_diff"]
 bitbucket_list_pr_comments = _tools["bitbucket_list_pr_comments"]
 bitbucket_create_pr_comment = _tools["bitbucket_create_pr_comment"]
+bitbucket_approve_pr = _tools["bitbucket_approve_pr"]
+bitbucket_request_changes_pr = _tools["bitbucket_request_changes_pr"]
 
 
 def _patches():
@@ -101,3 +103,23 @@ async def test_bitbucket_create_pr_comment():
     with patch("src.mcp_server.tools.client", mc), patch("src.mcp_server.tools.config", cfg):
         result = await bitbucket_create_pr_comment("repo", 1, "Nice")
     assert result == {"id": "c1"}
+
+
+@pytest.mark.asyncio
+async def test_bitbucket_approve_pr():
+    mc, cfg = _patches()
+    mc.post.return_value = {}
+    with patch("src.mcp_server.tools.client", mc), patch("src.mcp_server.tools.config", cfg):
+        result = await bitbucket_approve_pr("repo", 1)
+    assert "approved" in result
+    mc.post.assert_called_once_with("/repositories/test-ws/repo/pullrequests/1/approve", json={})
+
+
+@pytest.mark.asyncio
+async def test_bitbucket_request_changes_pr():
+    mc, cfg = _patches()
+    mc.post.return_value = {}
+    with patch("src.mcp_server.tools.client", mc), patch("src.mcp_server.tools.config", cfg):
+        result = await bitbucket_request_changes_pr("repo", 1)
+    assert "Changes requested" in result
+    mc.post.assert_called_once_with("/repositories/test-ws/repo/pullrequests/1/request-changes", json={})
