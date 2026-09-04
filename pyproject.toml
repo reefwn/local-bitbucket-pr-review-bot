@@ -1,0 +1,23 @@
+[project]
+name = "bitbucket-pr-review-bot"
+version = "0.1.0"
+description = "Poll Bitbucket for newly-opened PRs and review them with headless Claude"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp[cli]>=1.0.0,<2.0.0",
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
