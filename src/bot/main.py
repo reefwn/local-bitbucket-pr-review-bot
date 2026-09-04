@@ -41,7 +41,7 @@ async def run_cycle(config: Config, client: BitbucketClient) -> None:
         try:
             data = await client.get(
                 f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests",
-                params={"state": "OPEN", "pagelen": 100},
+                params={"state": "OPEN", "pagelen": 50},
             )
             prs = filter_open(data.get("values", []))
             prs = filter_recent(prs, now, config.poll_interval_minutes * 2)
