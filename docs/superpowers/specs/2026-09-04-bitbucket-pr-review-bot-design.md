@@ -88,17 +88,20 @@ cycles. Each cycle:
 
 ## Component: `web` — on-demand trigger
 
-Minimal FastAPI app:
+Minimal FastAPI app, served on localhost:
 
-- `GET /` — HTML form: repo slug + PR id fields (or a single "paste PR URL"
-  field, parsed into repo slug + PR id).
-- `POST /review` — same fields as JSON body. Always invokes the review
-  runner immediately, regardless of `reviewed_prs` state (manual re-review
-  is intentional — e.g. after pushing new commits). On success, still
-  writes/updates the `reviewed_prs` row so the bot doesn't duplicate it on
-  its next poll.
+- `GET /` — single HTML page: one URL text input (paste full Bitbucket PR
+  URL, e.g. `https://bitbucket.org/{workspace}/{repo_slug}/pull-requests/{pr_id}`)
+  + a submit button. On submit, posts to `/review` and shows the result
+  (success/error text) on the same page.
+- `POST /review` — accepts `{ "pr_url": "..." }`. Parses `repo_slug` and
+  `pr_id` out of the URL (400 if it doesn't match the expected Bitbucket PR
+  URL shape). Always invokes the review runner immediately, regardless of
+  `reviewed_prs` state (manual re-review is intentional — e.g. after
+  pushing new commits). On success, still writes/updates the
+  `reviewed_prs` row so the bot doesn't duplicate it on its next poll.
 - `GET /health` — liveness check.
-- No authentication (internal/localhost use only, per requirements).
+- No authentication (localhost-only use, per requirements).
 
 ## Review runner (shared logic)
 
