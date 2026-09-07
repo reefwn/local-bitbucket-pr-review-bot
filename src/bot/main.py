@@ -53,7 +53,9 @@ async def run_cycle(config: Config, client: BitbucketClient) -> None:
                     )
                     comments_text = _format_comments(comments_data)
                     await asyncio.to_thread(run_review, repo_slug, pr["id"], comments_text, config.mcp_config_path)
-                    mark_reviewed(config.db_path, repo_slug, pr["id"], now.isoformat())
+                    mark_reviewed(
+                        config.db_path, repo_slug, pr["id"], now.isoformat(), pr["source"]["commit"]["hash"]
+                    )
                 except Exception:
                     logger.exception("Review failed for %s PR #%s", repo_slug, pr["id"])
         except Exception:
