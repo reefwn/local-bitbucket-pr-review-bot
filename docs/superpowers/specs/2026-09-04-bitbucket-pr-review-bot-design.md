@@ -4,7 +4,10 @@
 
 Automatically review newly-opened Bitbucket pull requests using Claude in
 headless mode, on a configurable poll interval, plus an on-demand web
-trigger for immediate review without waiting for the next poll cycle.
+trigger for immediate review without waiting for the next poll cycle. If
+Claude reports a usage-limit failure, the same review is retried with
+headless Kiro CLI as a fallback agent, so reviews don't silently stop when
+the Claude Pro quota is exhausted.
 
 ## Non-goals
 
@@ -14,34 +17,39 @@ trigger for immediate review without waiting for the next poll cycle.
   passed as context to the review, not replied to individually).
 - Auth/login on the web trigger (assumed internal/localhost use).
 - Multi-workspace support (single Bitbucket workspace per deployment).
+- General-purpose multi-agent orchestration — Kiro is strictly a fallback
+  for Claude's usage limit, not a load-balanced second reviewer or a retry
+  mechanism for other failure types.
 
 ## Architecture
 
 Three services via `docker-compose`, sharing one Docker volume for SQLite
-state and one Docker volume for persisted Claude CLI auth:
+state and Docker volumes for persisted CLI auth (Claude and Kiro each get
+their own):
 
 ```
                  ┌──────────────┐
    poll every    │     bot      │  headless claude -p  ┌─────────────┐
    N minutes ──▶ │  (scheduler) │ ───────────────────▶ │     mcp     │
-                 └──────┬───────┘   MCP over HTTP       │ (Bitbucket  │
+                 └──────┬───────┘  (Kiro fallback)      │ (Bitbucket  │
                         │                                │  PR tools) │
    manual dump   ┌──────▼───────┐  headless claude -p    └─────────────┘
    via HTTP  ──▶ │     web      │ ───────────────────▶        ▲
-                 │  (FastAPI)   │                              │
+                 │  (FastAPI)   │  (Kiro fallback)             │
                  └──────┬───────┘                              │
                         │                                      │
                  shared SQLite (reviewed_prs)          Bitbucket Cloud API
-                 shared claude-auth volume
+                 shared claude-auth / kiro-auth / kiro-aws-sso volumes
 ```
 
 - **mcp**: Bitbucket PR-only MCP server (FastMCP, streamable-HTTP transport,
   same pattern as the reference `local-mcp` project). Exposes only PR-related
   tools.
 - **bot**: background scheduler, polls Bitbucket on an interval, decides
-  which PRs need review, invokes headless Claude for each.
+  which PRs need review, invokes headless Claude for each (falling back to
+  headless Kiro on a Claude usage-limit failure).
 - **web**: FastAPI app with a manual "review this PR now" endpoint/form,
-  invokes the same review path as the bot, immediately.
+  invokes the same review path as the bot (Claude first, Kiro fallback).
 
 Both `bot` and `web` share:
 - A SQLite file (`/data/reviewed_prs.db`) recording which `(repo_slug,
@@ -49,6 +57,9 @@ Both `bot` and `web` share:
   the bot from re-reviewing the same PR on its next poll.
 - A `claude-auth` volume holding the Claude Code CLI's persisted OAuth
   credentials (Pro subscription login, not an API key — see Auth section).
+- `kiro-auth` and `kiro-aws-sso` volumes holding Kiro CLI's persisted
+  session/config (`~/.kiro`) and auth token cache (`~/.aws/sso/cache`),
+  used only when the Claude fallback path is exercised.
 
 ## Component: `mcp` — Bitbucket PR MCP server
 
@@ -108,8 +119,8 @@ Minimal FastAPI app, served on localhost:
 A single function, used by both `bot` and `web`, that:
 
 1. Builds a prompt containing: repo slug, PR id, and existing PR comments
-   (if any) as context — so Claude doesn't repeat points already raised and
-   can build on them.
+   (if any) as context — so the reviewing agent doesn't repeat points
+   already raised and can build on them.
 2. Spawns headless Claude:
    ```
    claude -p "<prompt>" \
@@ -122,8 +133,25 @@ A single function, used by both `bot` and `web`, that:
 3. Claude itself fetches the diff/comments and posts the review comment via
    `bitbucket_create_pr_comment` — the runner does not construct or post the
    comment text itself.
-4. Runner checks the subprocess exit code and parses the JSON result for
-   logging/status; does not retry on failure (surfaces the error).
+4. Checks whether the Claude invocation hit a **usage-limit failure**: a
+   non-zero exit, or an exit-0 result whose JSON `result` text contains a
+   known limit/quota phrase. Any other failure propagates immediately
+   (`subprocess.CalledProcessError`) without falling back.
+5. On a usage-limit failure, retries the same prompt with headless Kiro
+   CLI:
+   ```
+   kiro-cli chat "<prompt>" \
+     --agent pr-reviewer \
+     --no-interactive \
+     --output-format text
+   ```
+   using the `pr-reviewer` agent config (`.kiro/agents/pr-reviewer.json`),
+   which declares `mcpServers.bitbucket-pr` pointed at the same `mcp`
+   service and an `allowedTools` list equivalent to Claude's
+   `--allowedTools`. If the Kiro fallback also fails, that failure
+   propagates.
+6. Runner checks the final exit code and result for logging/status; does
+   not retry beyond the single Claude→Kiro fallback.
 
 ## Auth
 
@@ -150,8 +178,26 @@ re-login.
 **Known constraint**: Pro-plan usage is a personal quota shared with the
 user's own interactive use of Claude. Frequent polling (every 10 min)
 combined with manual on-demand reviews counts against that same quota and
-could hit rate limits under heavy PR volume. Not a blocker for this design,
-but worth monitoring.
+could hit rate limits under heavy PR volume. This is precisely the
+constraint the Kiro fallback exists to mitigate — see below.
+
+### Kiro CLI (fallback agent)
+Kiro CLI persists its session/config under `~/.kiro` and its auth token
+cache under `~/.aws/sso/cache` (`~/.aws`). Like Claude, headless Kiro needs
+a one-time interactive login before it can run unattended.
+
+Setup: named `kiro-auth` (`/root/.kiro`) and `kiro-aws-sso` (`/root/.aws`)
+volumes are mounted in both `bot` and `web` containers. On first-time
+setup, run:
+
+```
+docker compose run --rm --entrypoint kiro-cli bot login
+```
+
+Complete the device/browser auth flow once; credentials persist on those
+volumes, so subsequent container restarts don't require re-login. Kiro is
+only invoked when Claude reports a usage-limit failure, so its quota is
+consumed far less frequently than Claude's.
 
 ## State: SQLite schema
 
@@ -177,6 +223,10 @@ both `bot` and `web`.
 | `PROJECT_KEYS` | bot | Comma-separated Bitbucket Project keys to watch |
 | `POLL_INTERVAL_MINUTES` | bot | Poll cycle interval, default `10` |
 | `MCP_URL` | bot, web | URL of the `mcp` service, e.g. `http://mcp:7390/mcp` |
+| `MCP_CONFIG_PATH` | bot, web | Path to write Claude's MCP config file, default `/app/mcp-config.json` |
+| `KIRO_MCP_CONFIG_PATH` | bot, web | Path to write Kiro's MCP config file, default `/app/kiro-mcp-config.json` |
+| `KIRO_AGENT_NAME` | bot, web | Kiro agent config name to use for the fallback review, default `pr-reviewer` |
+
 
 ## Testing
 
@@ -184,6 +234,11 @@ both `bot` and `web`.
   window, dedup against `reviewed_prs`) using a fake Bitbucket client.
 - Unit tests for the MCP tool subset (mirroring the reference project's
   tool tests, trimmed to PR tools).
+- Unit tests for `review_runner.run_review`'s Claude→Kiro fallback: a
+  generic Claude failure propagates without invoking Kiro; a usage-limit
+  failure (via non-zero exit or exit-0 result text) invokes Kiro and
+  returns its result; a Kiro failure after a Claude usage-limit failure
+  propagates. All via mocked `subprocess.run`, no real CLI invocations.
 - Manual/integration check: run `docker compose up`, create a test PR,
   confirm a review comment appears within one poll cycle; hit `POST
   /review` directly and confirm immediate review + `reviewed_prs` row.

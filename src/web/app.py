@@ -9,7 +9,7 @@ from src.bitbucket_client import BitbucketClient
 from src.config import Config
 from src.db import init_db, mark_reviewed
 from src.pr_url import parse_pr_url
-from src.review_runner import run_review, write_mcp_config
+from src.review_runner import run_review, write_kiro_mcp_config, write_mcp_config
 
 _FORM_HTML = """<!doctype html>
 <html>
@@ -57,6 +57,7 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
     """Build the FastAPI app, wiring in the given Config (and optionally an injected client for tests)."""
     init_db(config.db_path)
     write_mcp_config(config.mcp_config_path, config.mcp_url)
+    write_kiro_mcp_config(config.kiro_mcp_config_path, config.mcp_url)
     client = client or BitbucketClient(config)
     app = FastAPI()
 
@@ -81,7 +82,9 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
                 f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr_id}/comments"
             )
             comments_text = _format_comments(comments_data)
-            result = await asyncio.to_thread(run_review, repo_slug, pr_id, comments_text, config.mcp_config_path)
+            result = await asyncio.to_thread(
+                run_review, repo_slug, pr_id, comments_text, config.mcp_config_path, config.kiro_agent_name
+            )
             mark_reviewed(
                 config.db_path,
                 repo_slug,

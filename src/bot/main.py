@@ -6,7 +6,7 @@ from src.bitbucket_client import BitbucketClient
 from src.bot.poller import filter_open, filter_recent, filter_unreviewed
 from src.config import Config
 from src.db import init_db, mark_reviewed
-from src.review_runner import run_review, write_mcp_config
+from src.review_runner import run_review, write_kiro_mcp_config, write_mcp_config
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,14 @@ async def run_cycle(config: Config, client: BitbucketClient) -> None:
                         f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr['id']}/comments"
                     )
                     comments_text = _format_comments(comments_data)
-                    await asyncio.to_thread(run_review, repo_slug, pr["id"], comments_text, config.mcp_config_path)
+                    await asyncio.to_thread(
+                        run_review,
+                        repo_slug,
+                        pr["id"],
+                        comments_text,
+                        config.mcp_config_path,
+                        config.kiro_agent_name,
+                    )
                     mark_reviewed(
                         config.db_path, repo_slug, pr["id"], now.isoformat(), pr["source"]["commit"]["hash"]
                     )
@@ -68,6 +75,7 @@ async def main() -> None:
     config = Config()
     init_db(config.db_path)
     write_mcp_config(config.mcp_config_path, config.mcp_url)
+    write_kiro_mcp_config(config.kiro_mcp_config_path, config.mcp_url)
     client = BitbucketClient(config)
     try:
         while True:

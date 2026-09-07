@@ -2,7 +2,11 @@ import json
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from src.review_runner import build_prompt, run_review, write_mcp_config
+from src.review_runner import build_prompt, run_review, write_kiro_mcp_config, write_mcp_config
+
+
+def _claude_result(stdout="", stderr="", returncode=0):
+    return MagicMock(stdout=stdout, stderr=stderr, returncode=returncode)
 
 
 def test_build_prompt_includes_repo_and_pr():
@@ -48,9 +52,21 @@ def test_write_mcp_config(tmp_path):
     }
 
 
+def test_write_kiro_mcp_config(tmp_path):
+    path = str(tmp_path / "kiro-mcp-config.json")
+    write_kiro_mcp_config(path, "http://mcp:7390/mcp")
+    with open(path) as f:
+        config = json.load(f)
+    assert config == {
+        "mcpServers": {
+            "bitbucket-pr": {"url": "http://mcp:7390/mcp", "disabled": False}
+        }
+    }
+
+
 def test_run_review_invokes_claude_with_expected_args(tmp_path):
     config_path = str(tmp_path / "mcp-config.json")
-    fake_result = MagicMock(stdout=json.dumps({"result": "posted comment"}))
+    fake_result = _claude_result(stdout=json.dumps({"result": "posted comment"}))
     with patch("subprocess.run", return_value=fake_result) as mock_run:
         result = run_review("my-repo", 42, "", config_path)
     assert result == {"result": "posted comment"}
@@ -70,18 +86,60 @@ def test_run_review_invokes_claude_with_expected_args(tmp_path):
 
 def test_run_review_passes_timeout(tmp_path):
     config_path = str(tmp_path / "mcp-config.json")
-    fake_result = MagicMock(stdout=json.dumps({"result": "posted comment"}))
+    fake_result = _claude_result(stdout=json.dumps({"result": "posted comment"}))
     with patch("subprocess.run", return_value=fake_result) as mock_run:
         run_review("my-repo", 42, "", config_path)
     assert mock_run.call_args[1]["timeout"] == 600
 
 
-def test_run_review_propagates_failure(tmp_path):
+def test_run_review_propagates_generic_failure(tmp_path):
+    """A non-zero exit with no usage-limit phrasing is a generic failure, not a fallback trigger."""
     config_path = str(tmp_path / "mcp-config.json")
-    with patch(
-        "subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, ["claude"]),
-    ):
+    fake_result = _claude_result(stdout="", stderr="tool crashed unexpectedly", returncode=1)
+    with patch("subprocess.run", return_value=fake_result):
+        try:
+            run_review("my-repo", 42, "", config_path)
+            assert False, "expected CalledProcessError"
+        except subprocess.CalledProcessError:
+            pass
+
+
+def test_run_review_falls_back_to_kiro_on_usage_limit_exit_code(tmp_path):
+    """Non-zero exit + limit phrasing in stderr triggers the Kiro fallback."""
+    config_path = str(tmp_path / "mcp-config.json")
+    claude_result = _claude_result(stdout="", stderr="Error: rate limit reached for this account", returncode=1)
+    kiro_result = _claude_result(stdout="Reviewed and approved PR #42", stderr="", returncode=0)
+    with patch("subprocess.run", side_effect=[claude_result, kiro_result]) as mock_run:
+        result = run_review("my-repo", 42, "", config_path)
+    assert result == {"result": "Reviewed and approved PR #42", "agent": "kiro"}
+    assert mock_run.call_count == 2
+    kiro_args = mock_run.call_args_list[1][0][0]
+    assert kiro_args[0] == "kiro-cli"
+    assert kiro_args[1] == "chat"
+    assert "--agent" in kiro_args
+    assert "pr-reviewer" in kiro_args
+    assert "--no-interactive" in kiro_args
+
+
+def test_run_review_falls_back_to_kiro_on_usage_limit_in_successful_result(tmp_path):
+    """Exit 0 but the JSON result text itself reports a hit usage limit."""
+    config_path = str(tmp_path / "mcp-config.json")
+    claude_result = _claude_result(
+        stdout=json.dumps({"result": "You've hit your session limit. Try again later."}), returncode=0
+    )
+    kiro_result = _claude_result(stdout="Reviewed and requested changes on PR #42", returncode=0)
+    with patch("subprocess.run", side_effect=[claude_result, kiro_result]) as mock_run:
+        result = run_review("my-repo", 42, "", config_path)
+    assert result == {"result": "Reviewed and requested changes on PR #42", "agent": "kiro"}
+    assert mock_run.call_count == 2
+
+
+def test_run_review_propagates_kiro_failure_after_claude_usage_limit(tmp_path):
+    """If Claude hits its limit and the Kiro fallback also fails, the failure propagates."""
+    config_path = str(tmp_path / "mcp-config.json")
+    claude_result = _claude_result(stdout="", stderr="usage limit exceeded", returncode=1)
+    kiro_result = _claude_result(stdout="", stderr="kiro auth expired", returncode=1)
+    with patch("subprocess.run", side_effect=[claude_result, kiro_result]):
         try:
             run_review("my-repo", 42, "", config_path)
             assert False, "expected CalledProcessError"

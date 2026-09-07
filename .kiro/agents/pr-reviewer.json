@@ -1,0 +1,27 @@
+{
+  "name": "pr-reviewer",
+  "description": "Headless Bitbucket PR reviewer used as the Kiro fallback when Claude hits its usage limit.",
+  "prompt": "You review a single Bitbucket pull request per invocation using only the bitbucket-pr MCP tools. Fetch the diff and existing comments, post one review comment, then approve the PR or request changes based on the review. Never decline or close a PR.",
+  "tools": [
+    "@bitbucket-pr/bitbucket_get_pr",
+    "@bitbucket-pr/bitbucket_get_pr_diff",
+    "@bitbucket-pr/bitbucket_list_pr_comments",
+    "@bitbucket-pr/bitbucket_create_pr_comment",
+    "@bitbucket-pr/bitbucket_approve_pr",
+    "@bitbucket-pr/bitbucket_request_changes_pr"
+  ],
+  "allowedTools": [
+    "@bitbucket-pr/bitbucket_get_pr",
+    "@bitbucket-pr/bitbucket_get_pr_diff",
+    "@bitbucket-pr/bitbucket_list_pr_comments",
+    "@bitbucket-pr/bitbucket_create_pr_comment",
+    "@bitbucket-pr/bitbucket_approve_pr",
+    "@bitbucket-pr/bitbucket_request_changes_pr"
+  ],
+  "mcpServers": {
+    "bitbucket-pr": {
+      "url": "${MCP_URL}",
+      "disabled": false
+    }
+  }
+}

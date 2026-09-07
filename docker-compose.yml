@@ -16,6 +16,8 @@ services:
     volumes:
       - reviewed-prs:/data
       - claude-auth:/root/.claude
+      - kiro-auth:/root/.kiro
+      - kiro-aws-sso:/root/.aws
     depends_on:
       - mcp
     restart: unless-stopped
@@ -30,6 +32,8 @@ services:
     volumes:
       - reviewed-prs:/data
       - claude-auth:/root/.claude
+      - kiro-auth:/root/.kiro
+      - kiro-aws-sso:/root/.aws
     depends_on:
       - mcp
     restart: unless-stopped
@@ -37,3 +41,5 @@ services:
 volumes:
   reviewed-prs:
   claude-auth:
+  kiro-auth:
+  kiro-aws-sso:
