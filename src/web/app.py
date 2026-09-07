@@ -17,6 +17,7 @@ _FORM_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PR Review</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='7' fill='%230d1117'/%3E%3Crect x='7' y='6' width='4' height='3' rx='1' fill='%236e7681'/%3E%3Crect x='21' y='6' width='4' height='3' rx='1' fill='%236e7681'/%3E%3Crect x='6' y='9' width='20' height='17' rx='4' fill='%2321262d' stroke='%2358a6ff' stroke-width='1.5'/%3E%3Crect x='10' y='15' width='4' height='5' rx='1.5' fill='%2358a6ff'/%3E%3Crect x='18' y='15' width='4' height='5' rx='1.5' fill='%2358a6ff'/%3E%3Crect x='12' y='23' width='8' height='2' rx='1' fill='%233fb950'/%3E%3C/svg%3E">
 <style>
   :root {
     --bg: #0d1117;
