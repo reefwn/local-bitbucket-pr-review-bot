@@ -17,19 +17,25 @@ _FORM_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PR Review</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='7' fill='%230d1117'/%3E%3Crect x='7' y='6' width='4' height='3' rx='1' fill='%236e7681'/%3E%3Crect x='21' y='6' width='4' height='3' rx='1' fill='%236e7681'/%3E%3Crect x='6' y='9' width='20' height='17' rx='4' fill='%2321262d' stroke='%2358a6ff' stroke-width='1.5'/%3E%3Crect x='10' y='15' width='4' height='5' rx='1.5' fill='%2358a6ff'/%3E%3Crect x='18' y='15' width='4' height='5' rx='1.5' fill='%2358a6ff'/%3E%3Crect x='12' y='23' width='8' height='2' rx='1' fill='%233fb950'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1' y='1' width='30' height='30' rx='9' fill='%234c8dff'/%3E%3Crect x='7' y='6' width='4' height='3' rx='1.5' fill='%23bcd6ff'/%3E%3Crect x='21' y='6' width='4' height='3' rx='1.5' fill='%23bcd6ff'/%3E%3Crect x='6' y='9' width='20' height='17' rx='5' fill='white'/%3E%3Crect x='10' y='15' width='4' height='5' rx='1.5' fill='%234c8dff'/%3E%3Crect x='18' y='15' width='4' height='5' rx='1.5' fill='%234c8dff'/%3E%3Crect x='12' y='23' width='8' height='2' rx='1' fill='%2322c55e'/%3E%3C/svg%3E">
 <style>
   :root {
-    --bg: #0d1117;
-    --bg-raised: #11161d;
-    --border: #21262d;
-    --text: #c9d1d9;
-    --text-dim: #6e7681;
-    --accent: #58a6ff;
-    --ok: #3fb950;
-    --err: #f85149;
-    --pending: #d29922;
-    --mono: ui-monospace, "SF Mono", "Menlo", "Cascadia Code", monospace;
+    --bg: #eef3fb;
+    --card: #ffffff;
+    --border: #e6ebf3;
+    --text: #0f172a;
+    --text-dim: #64748b;
+    --text-faint: #94a3b8;
+    --accent: #4c8dff;
+    --accent-soft: #eaf1ff;
+    --ok: #16a34a;
+    --ok-soft: #e9f9ee;
+    --err: #dc2626;
+    --err-soft: #fdecec;
+    --pending: #d97706;
+    --pending-soft: #fef3e2;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06);
   }
 
   * { box-sizing: border-box; }
@@ -42,79 +48,87 @@ _FORM_HTML = """<!doctype html>
     margin: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: var(--mono);
-    font-size: 14px;
-    line-height: 1.6;
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
   }
 
   main {
-    max-width: 640px;
+    max-width: 600px;
     margin: 0 auto;
-    padding: 48px 20px 80px;
+    padding: 56px 20px 80px;
   }
 
   h1 {
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     color: var(--text);
-    margin: 0 0 4px;
-  }
-
-  h1::before {
-    content: "$ ";
-    color: var(--text-dim);
+    margin: 0 0 6px;
   }
 
   .sub {
     color: var(--text-dim);
-    font-size: 13px;
-    margin: 0 0 32px;
+    font-size: 15px;
+    margin: 0 0 28px;
+  }
+
+  .card {
+    background: var(--card);
+    border-radius: 24px;
+    box-shadow: var(--shadow);
+    padding: 20px;
+    margin-bottom: 24px;
   }
 
   form {
     display: flex;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 10px;
+  }
+
+  .input-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    background: var(--bg);
+    border-radius: 999px;
+    padding: 4px 4px 4px 18px;
+    min-width: 0;
   }
 
   input[type="text"] {
     flex: 1;
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
+    background: transparent;
+    border: none;
     color: var(--text);
-    font-family: var(--mono);
-    font-size: 13px;
-    padding: 10px 12px;
-    border-radius: 4px;
+    font-family: var(--sans);
+    font-size: 14px;
+    padding: 10px 4px;
     outline: none;
     min-width: 0;
   }
 
   input[type="text"]::placeholder {
-    color: var(--text-dim);
-  }
-
-  input[type="text"]:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent);
+    color: var(--text-faint);
   }
 
   button {
     background: var(--accent);
-    color: #0d1117;
+    color: white;
     border: none;
-    font-family: var(--mono);
-    font-size: 13px;
+    font-family: var(--sans);
+    font-size: 14px;
     font-weight: 600;
-    padding: 10px 18px;
-    border-radius: 4px;
+    padding: 12px 22px;
+    border-radius: 999px;
     cursor: pointer;
     white-space: nowrap;
+    transition: filter 0.15s ease, transform 0.1s ease;
   }
 
-  button:hover { filter: brightness(1.1); }
-  button:active { filter: brightness(0.95); }
-  button:disabled { opacity: 0.5; cursor: default; }
+  button:hover { filter: brightness(1.08); }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.5; cursor: default; transform: none; }
   button:focus-visible, input:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
@@ -123,148 +137,180 @@ _FORM_HTML = """<!doctype html>
   .status-line {
     min-height: 20px;
     font-size: 13px;
+    font-weight: 600;
     color: var(--text-dim);
-    margin-bottom: 56px;
+    margin: 14px 4px 0;
   }
   .status-line.err { color: var(--err); }
   .status-line.ok { color: var(--ok); }
 
   @media (max-width: 480px) {
     form { flex-direction: column; }
-    button { align-self: flex-start; }
+    button { align-self: stretch; }
   }
 
   .log-header {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-bottom: 12px;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--border);
+    margin-bottom: 14px;
+    padding: 0 4px;
   }
 
   .log-header h2 {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-dim);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text);
     margin: 0;
   }
 
   .log-header .count {
-    font-size: 12px;
-    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-faint);
+    background: var(--bg);
+    padding: 3px 10px;
+    border-radius: 999px;
   }
 
   #log {
     display: flex;
     flex-direction: column;
+    gap: 8px;
   }
 
   .row {
     display: grid;
-    grid-template-columns: 14px 1fr auto;
-    gap: 10px;
-    align-items: baseline;
-    padding: 7px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
+    grid-template-columns: 36px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    background: var(--card);
+    border-radius: 16px;
+    padding: 12px 14px;
+    box-shadow: var(--shadow);
   }
 
-  .row:last-child { border-bottom: none; }
-
-  .row .glyph { color: var(--ok); }
-  .row.pending .glyph { color: var(--pending); }
+  .row .badge {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--ok-soft);
+    color: var(--ok);
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  .row.pending .badge { background: var(--pending-soft); color: var(--pending); }
 
   .row .path {
-    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-width: 0;
   }
-  .row .path .pr-id { color: var(--text-dim); }
   .row .path a {
-    color: inherit;
+    color: var(--text);
+    font-weight: 600;
+    font-size: 14px;
     text-decoration: none;
   }
+  .row .path .pr-id { color: var(--text-faint); font-weight: 500; }
   .row .path a:hover { color: var(--accent); }
   .row .path a:hover .pr-id { color: var(--accent); }
   .row .path a:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-    border-radius: 2px;
+    border-radius: 4px;
+  }
+  .row .path.plain {
+    color: var(--text-dim);
+    font-size: 14px;
+    font-weight: 500;
   }
 
   .row .time {
-    color: var(--text-dim);
+    color: var(--text-faint);
     font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .empty {
     color: var(--text-dim);
-    font-size: 13px;
-    padding: 20px 0;
+    font-size: 14px;
+    text-align: center;
+    padding: 28px 0;
   }
 
   .pager {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
-    margin-top: 16px;
-    font-size: 12px;
-    color: var(--text-dim);
+    gap: 10px;
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--text-faint);
+    font-weight: 600;
   }
 
   .pager[hidden] { display: none; }
 
   .pager button {
-    background: transparent;
+    background: var(--card);
     color: var(--text-dim);
-    border: 1px solid var(--border);
-    font-size: 12px;
-    font-weight: 400;
-    padding: 5px 10px;
+    box-shadow: var(--shadow);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 16px;
   }
 
   .pager button:hover:not(:disabled) {
-    color: var(--text);
-    border-color: var(--text-dim);
+    color: var(--accent);
     filter: none;
   }
 
   .pager button:disabled {
-    opacity: 0.35;
+    opacity: 0.4;
     cursor: default;
+    transform: none;
   }
 
   .fade-in {
     animation: fadeIn 0.35s ease-out;
   }
   @keyframes fadeIn {
-    from { opacity: 0; }
-    to { opacity: 1; }
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 </style>
 </head>
 <body>
 <main>
-  <h1>pr-review-bot</h1>
-  <p class="sub">Paste a Bitbucket pull request URL to review it now.</p>
+  <h1>PR Review</h1>
+  <p class="sub">Paste a Bitbucket pull request link and review it right away.</p>
 
-  <form id="review-form">
-    <input
-      type="text"
-      id="pr_url"
-      name="pr_url"
-      autocomplete="off"
-      spellcheck="false"
-      placeholder="https://bitbucket.org/{workspace}/{repo}/pull-requests/{id}"
-    >
-    <button type="submit" id="submit-btn">Review</button>
-  </form>
-  <p class="status-line" id="status"></p>
+  <div class="card">
+    <form id="review-form">
+      <div class="input-wrap">
+        <input
+          type="text"
+          id="pr_url"
+          name="pr_url"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="https://bitbucket.org/{workspace}/{repo}/pull-requests/{id}"
+        >
+      </div>
+      <button type="submit" id="submit-btn">Review</button>
+    </form>
+    <p class="status-line" id="status"></p>
+  </div>
 
   <div class="log-header">
-    <h2>recently reviewed</h2>
+    <h2>Recently reviewed</h2>
     <span class="count" id="log-count"></span>
   </div>
   <div id="log"><p class="empty">Loading&hellip;</p></div>
@@ -314,7 +360,7 @@ function renderLog(data) {
   } else {
     logEl.innerHTML = reviews.map(r => `
       <div class="row">
-        <span class="glyph">&#10003;</span>
+        <span class="badge">&#10003;</span>
         <span class="path">
           <a href="${r.pr_url}" target="_blank" rel="noopener noreferrer">${repoAndPr(r.repo_slug, r.pr_id)}</a>
         </span>
@@ -325,7 +371,7 @@ function renderLog(data) {
 
   const totalPages = data.total_pages || 1;
   pagerEl.hidden = totalPages <= 1;
-  pagerLabelEl.textContent = `page ${data.page || 1} of ${totalPages}`;
+  pagerLabelEl.textContent = `Page ${data.page || 1} of ${totalPages}`;
   prevPageBtn.disabled = (data.page || 1) <= 1;
   nextPageBtn.disabled = (data.page || 1) >= totalPages;
 }
@@ -352,9 +398,9 @@ function prependPending(repoGuess) {
   const row = document.createElement("div");
   row.className = "row pending fade-in";
   row.innerHTML = `
-    <span class="glyph">&#8230;</span>
-    <span class="path">${repoGuess || "reviewing&hellip;"}</span>
-    <span class="time">now</span>
+    <span class="badge">&#8230;</span>
+    <span class="path plain">${repoGuess || "Reviewing&hellip;"}</span>
+    <span class="time">Now</span>
   `;
   const empty = logEl.querySelector(".empty");
   if (empty) empty.remove();
