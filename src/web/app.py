@@ -211,6 +211,7 @@ _FORM_HTML = """<!doctype html>
     flex-shrink: 0;
   }
   .row.pending .badge { background: var(--pending-soft); color: var(--pending); }
+  .row.changes-requested .badge { background: var(--pending-soft); color: var(--pending); }
 
   .row .path {
     overflow: hidden;
@@ -365,15 +366,20 @@ function renderLog(data) {
       ? '<p class="empty">No PRs reviewed yet. They will appear here once the bot runs.</p>'
       : '<p class="empty">No more reviews.</p>';
   } else {
-    logEl.innerHTML = reviews.map(r => `
-      <div class="row">
-        <span class="badge">&#10003;</span>
+    logEl.innerHTML = reviews.map(r => {
+      const changesRequested = r.outcome === "changes_requested";
+      const rowClass = changesRequested ? "row changes-requested" : "row";
+      const glyph = changesRequested ? "&minus;" : "&#10003;";
+      return `
+      <div class="${rowClass}">
+        <span class="badge">${glyph}</span>
         <span class="path">
           <a href="${r.pr_url}" target="_blank" rel="noopener noreferrer">${repoAndPr(r.repo_slug, r.pr_id)}</a>
         </span>
         <span class="time">${formatTime(r.reviewed_at)}</span>
       </div>
-    `).join("");
+    `;
+    }).join("");
   }
 
   const totalPages = data.total_pages || 1;
@@ -526,14 +532,25 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
             result = await asyncio.to_thread(
                 run_review, repo_slug, pr_id, comments_text, config.mcp_config_path, config.kiro_agent_name
             )
+            try:
+                outcome = await client.get_review_outcome(repo_slug, pr_id)
+            except Exception:
+                outcome = "unknown"
             mark_reviewed(
                 config.db_path,
                 repo_slug,
                 pr_id,
                 datetime.now(timezone.utc).isoformat(),
                 pr_data["source"]["commit"]["hash"],
+                outcome,
             )
-            return {"status": "reviewed", "repo_slug": repo_slug, "pr_id": pr_id, "claude_result": result}
+            return {
+                "status": "reviewed",
+                "repo_slug": repo_slug,
+                "pr_id": pr_id,
+                "outcome": outcome,
+                "claude_result": result,
+            }
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Review failed: {e}")
 

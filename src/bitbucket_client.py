@@ -51,3 +51,26 @@ class BitbucketClient:
 
     async def close(self) -> None:
         await self._http.aclose()
+
+    async def get_own_account_uuid(self) -> str:
+        """UUID of the authenticated Bitbucket account (the review bot's own identity)."""
+        data = await self.get("/user")
+        return data["uuid"]
+
+    async def get_review_outcome(self, repo_slug: str, pr_id: int) -> str:
+        """Determine whether the bot's own review on a PR was an approval or a change request.
+
+        Reads the PR's `participants` list and looks for the entry matching the
+        authenticated account's UUID. Returns 'approved', 'changes_requested', or
+        'unknown' if no matching participant entry is found (e.g. the review
+        comment posted but the approve/request-changes call failed or hasn't
+        landed yet).
+        """
+        own_uuid = await self.get_own_account_uuid()
+        pr_data = await self.get(f"/repositories/{self.config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr_id}")
+        for participant in pr_data.get("participants", []):
+            if participant.get("user", {}).get("uuid") == own_uuid:
+                state = participant.get("state")
+                if state in ("approved", "changes_requested"):
+                    return state
+        return "unknown"

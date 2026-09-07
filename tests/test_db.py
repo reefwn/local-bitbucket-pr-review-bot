@@ -123,3 +123,56 @@ def test_count_reviews(tmp_path):
     for i in range(4):
         mark_reviewed(db_path, "repo-a", i, f"2026-09-04T0{i}:00:00+00:00", f"hash-{i}")
     assert count_reviews(db_path) == 4
+
+
+def test_mark_reviewed_defaults_outcome_to_unknown(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    init_db(db_path)
+    mark_reviewed(db_path, "my-repo", 1, "2026-09-04T00:00:00+00:00", "hash-a")
+    reviews = list_recent_reviews(db_path)
+    assert reviews[0]["outcome"] == "unknown"
+
+
+def test_mark_reviewed_stores_approved_outcome(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    init_db(db_path)
+    mark_reviewed(db_path, "my-repo", 1, "2026-09-04T00:00:00+00:00", "hash-a", outcome="approved")
+    reviews = list_recent_reviews(db_path)
+    assert reviews[0]["outcome"] == "approved"
+
+
+def test_mark_reviewed_stores_changes_requested_outcome(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    init_db(db_path)
+    mark_reviewed(db_path, "my-repo", 1, "2026-09-04T00:00:00+00:00", "hash-a", outcome="changes_requested")
+    reviews = list_recent_reviews(db_path)
+    assert reviews[0]["outcome"] == "changes_requested"
+
+
+def test_init_db_migrates_existing_db_missing_outcome_column(tmp_path):
+    import sqlite3
+
+    db_path = str(tmp_path / "reviewed.db")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE reviewed_prs (
+            repo_slug        TEXT NOT NULL,
+            pr_id            INTEGER NOT NULL,
+            reviewed_at      TEXT NOT NULL,
+            last_commit_hash TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (repo_slug, pr_id)
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO reviewed_prs (repo_slug, pr_id, reviewed_at, last_commit_hash) VALUES (?, ?, ?, ?)",
+        ("my-repo", 1, "2026-09-04T00:00:00+00:00", "hash-a"),
+    )
+    conn.commit()
+    conn.close()
+
+    init_db(db_path)
+
+    reviews = list_recent_reviews(db_path)
+    assert reviews[0]["outcome"] == "unknown"
