@@ -22,8 +22,11 @@ by pasting a PR URL.
 4. One-time Kiro CLI login (used as the fallback agent when Claude hits its
    usage limit):
    ```
-   docker compose run --rm --entrypoint kiro-cli bot login
+   docker compose run --rm --entrypoint kiro-cli bot login --use-device-flow
    ```
+   `--use-device-flow` is required since the container can't handle the
+   browser loopback redirect — this prints a code and URL to enter on
+   another device instead.
    Follow the device/browser auth flow. Credentials persist on the
    `kiro-auth` and `kiro-aws-sso` volumes, so this is only needed once.
 5. Start everything: `docker compose up -d`

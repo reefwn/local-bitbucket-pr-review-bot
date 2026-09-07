@@ -191,13 +191,15 @@ volumes are mounted in both `bot` and `web` containers. On first-time
 setup, run:
 
 ```
-docker compose run --rm --entrypoint kiro-cli bot login
+docker compose run --rm --entrypoint kiro-cli bot login --use-device-flow
 ```
 
-Complete the device/browser auth flow once; credentials persist on those
-volumes, so subsequent container restarts don't require re-login. Kiro is
-only invoked when Claude reports a usage-limit failure, so its quota is
-consumed far less frequently than Claude's.
+`--use-device-flow` is required — the container can't complete a browser
+loopback redirect, so this prints a code and URL to complete on another
+device instead. Complete the device/browser auth flow once; credentials
+persist on those volumes, so subsequent container restarts don't require
+re-login. Kiro is only invoked when Claude reports a usage-limit failure,
+so its quota is consumed far less frequently than Claude's.
 
 ## State: SQLite schema
 

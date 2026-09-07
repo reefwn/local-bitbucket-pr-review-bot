@@ -106,8 +106,9 @@ docker compose up -d
 # one-time Claude login (persists on claude-auth volume)
 docker compose run --rm --entrypoint claude bot auth login
 
-# one-time Kiro login (persists on kiro-auth volume)
-docker compose run --rm --entrypoint kiro-cli bot login
+# one-time Kiro login (persists on kiro-auth volume; device flow required —
+# the container can't complete a browser loopback redirect)
+docker compose run --rm --entrypoint kiro-cli bot login --use-device-flow
 ```
 
 ## Conventions
