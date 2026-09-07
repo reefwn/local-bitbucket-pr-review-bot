@@ -54,7 +54,7 @@ _FORM_HTML = """<!doctype html>
   }
 
   main {
-    max-width: 600px;
+    max-width: 720px;
     margin: 0 auto;
     padding: 56px 20px 80px;
   }
