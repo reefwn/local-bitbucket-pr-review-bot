@@ -34,6 +34,8 @@ _FORM_HTML = """<!doctype html>
     --err-soft: #fdecec;
     --pending: #d97706;
     --pending-soft: #fef3e2;
+    --unknown: #64748b;
+    --unknown-soft: #eef1f5;
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
     --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06);
   }
@@ -212,6 +214,7 @@ _FORM_HTML = """<!doctype html>
   }
   .row.pending .badge { background: var(--pending-soft); color: var(--pending); }
   .row.changes-requested .badge { background: var(--pending-soft); color: var(--pending); }
+  .row.outcome-unknown .badge { background: var(--unknown-soft); color: var(--unknown); }
 
   .row .path {
     overflow: hidden;
@@ -367,9 +370,17 @@ function renderLog(data) {
       : '<p class="empty">No more reviews.</p>';
   } else {
     logEl.innerHTML = reviews.map(r => {
-      const changesRequested = r.outcome === "changes_requested";
-      const rowClass = changesRequested ? "row changes-requested" : "row";
-      const glyph = changesRequested ? "&minus;" : "&#10003;";
+      const outcome = r.outcome;
+      const rowClass = outcome === "changes_requested"
+        ? "row changes-requested"
+        : outcome === "approved"
+        ? "row"
+        : "row outcome-unknown";
+      const glyph = outcome === "changes_requested"
+        ? "&minus;"
+        : outcome === "approved"
+        ? "&#10003;"
+        : "?";
       return `
       <div class="${rowClass}">
         <span class="badge">${glyph}</span>
