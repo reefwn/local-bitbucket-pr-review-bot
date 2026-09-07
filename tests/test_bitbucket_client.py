@@ -56,3 +56,63 @@ async def test_api_error_includes_body(mock_bitbucket_client):
 async def test_close(mock_bitbucket_client):
     await mock_bitbucket_client.close()
     mock_bitbucket_client._http.aclose.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_own_account_uuid(mock_bitbucket_client):
+    mock_bitbucket_client._http.get = AsyncMock(return_value=_make_response({"uuid": "{bot-uuid}"}))
+    uuid = await mock_bitbucket_client.get_own_account_uuid()
+    assert uuid == "{bot-uuid}"
+
+
+@pytest.mark.asyncio
+async def test_get_review_outcome_approved(mock_bitbucket_client):
+    user_resp = _make_response({"uuid": "{bot-uuid}"})
+    pr_resp = _make_response({
+        "participants": [
+            {"user": {"uuid": "{other-uuid}"}, "state": "changes_requested"},
+            {"user": {"uuid": "{bot-uuid}"}, "state": "approved"},
+        ]
+    })
+    mock_bitbucket_client._http.get = AsyncMock(side_effect=[user_resp, pr_resp])
+    outcome = await mock_bitbucket_client.get_review_outcome("my-repo", 5)
+    assert outcome == "approved"
+
+
+@pytest.mark.asyncio
+async def test_get_review_outcome_changes_requested(mock_bitbucket_client):
+    user_resp = _make_response({"uuid": "{bot-uuid}"})
+    pr_resp = _make_response({
+        "participants": [
+            {"user": {"uuid": "{bot-uuid}"}, "state": "changes_requested"},
+        ]
+    })
+    mock_bitbucket_client._http.get = AsyncMock(side_effect=[user_resp, pr_resp])
+    outcome = await mock_bitbucket_client.get_review_outcome("my-repo", 5)
+    assert outcome == "changes_requested"
+
+
+@pytest.mark.asyncio
+async def test_get_review_outcome_unknown_when_no_matching_participant(mock_bitbucket_client):
+    user_resp = _make_response({"uuid": "{bot-uuid}"})
+    pr_resp = _make_response({
+        "participants": [
+            {"user": {"uuid": "{other-uuid}"}, "state": "approved"},
+        ]
+    })
+    mock_bitbucket_client._http.get = AsyncMock(side_effect=[user_resp, pr_resp])
+    outcome = await mock_bitbucket_client.get_review_outcome("my-repo", 5)
+    assert outcome == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_get_review_outcome_unknown_when_state_is_null(mock_bitbucket_client):
+    user_resp = _make_response({"uuid": "{bot-uuid}"})
+    pr_resp = _make_response({
+        "participants": [
+            {"user": {"uuid": "{bot-uuid}"}, "state": None, "role": "REVIEWER"},
+        ]
+    })
+    mock_bitbucket_client._http.get = AsyncMock(side_effect=[user_resp, pr_resp])
+    outcome = await mock_bitbucket_client.get_review_outcome("my-repo", 5)
+    assert outcome == "unknown"

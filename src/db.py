@@ -13,12 +13,17 @@ def init_db(db_path: str) -> None:
                 pr_id            INTEGER NOT NULL,
                 reviewed_at      TEXT NOT NULL,
                 last_commit_hash TEXT NOT NULL DEFAULT '',
+                outcome          TEXT NOT NULL DEFAULT 'unknown',
                 PRIMARY KEY (repo_slug, pr_id)
             )
             """
         )
         try:
             conn.execute("ALTER TABLE reviewed_prs ADD COLUMN last_commit_hash TEXT NOT NULL DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE reviewed_prs ADD COLUMN outcome TEXT NOT NULL DEFAULT 'unknown'")
         except sqlite3.OperationalError:
             pass
         conn.commit()
@@ -39,14 +44,48 @@ def is_reviewed(db_path: str, repo_slug: str, pr_id: int, commit_hash: str) -> b
         conn.close()
 
 
-def mark_reviewed(db_path: str, repo_slug: str, pr_id: int, reviewed_at: str, commit_hash: str) -> None:
+def mark_reviewed(
+    db_path: str, repo_slug: str, pr_id: int, reviewed_at: str, commit_hash: str, outcome: str = "unknown"
+) -> None:
+    """Record that a PR was reviewed. `outcome` is 'approved', 'changes_requested', or 'unknown'."""
     conn = sqlite3.connect(db_path)
     try:
         conn.execute(
-            "INSERT OR REPLACE INTO reviewed_prs (repo_slug, pr_id, reviewed_at, last_commit_hash) "
-            "VALUES (?, ?, ?, ?)",
-            (repo_slug, pr_id, reviewed_at, commit_hash),
+            "INSERT OR REPLACE INTO reviewed_prs (repo_slug, pr_id, reviewed_at, last_commit_hash, outcome) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (repo_slug, pr_id, reviewed_at, commit_hash, outcome),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def list_recent_reviews(db_path: str, limit: int = 20, offset: int = 0) -> list[dict]:
+    """Reviewed PRs, newest first, for display on the web dashboard.
+
+    Supports paging arbitrarily far back via offset — bounded only by how
+    much history is retained in the reviewed_prs table.
+    """
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT repo_slug, pr_id, reviewed_at, last_commit_hash, outcome FROM reviewed_prs "
+            "ORDER BY reviewed_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def count_reviews(db_path: str) -> int:
+    """Total number of reviewed PRs on record, for computing page count."""
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM reviewed_prs").fetchone()
+        return row[0] if row else 0
     finally:
         conn.close()

@@ -60,8 +60,18 @@ async def run_cycle(config: Config, client: BitbucketClient) -> None:
                         config.mcp_config_path,
                         config.kiro_agent_name,
                     )
+                    try:
+                        outcome = await client.get_review_outcome(repo_slug, pr["id"])
+                    except Exception:
+                        logger.exception("Failed to determine review outcome for %s PR #%s", repo_slug, pr["id"])
+                        outcome = "unknown"
                     mark_reviewed(
-                        config.db_path, repo_slug, pr["id"], now.isoformat(), pr["source"]["commit"]["hash"]
+                        config.db_path,
+                        repo_slug,
+                        pr["id"],
+                        now.isoformat(),
+                        pr["source"]["commit"]["hash"],
+                        outcome,
                     )
                 except Exception:
                     logger.exception("Review failed for %s PR #%s", repo_slug, pr["id"])
