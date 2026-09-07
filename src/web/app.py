@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from src.bitbucket_client import BitbucketClient
 from src.config import Config
-from src.db import init_db, list_recent_reviews, mark_reviewed
+from src.db import count_reviews, init_db, list_recent_reviews, mark_reviewed
 from src.pr_url import parse_pr_url
 from src.review_runner import run_review, write_kiro_mcp_config, write_mcp_config
 
@@ -181,6 +181,17 @@ _FORM_HTML = """<!doctype html>
     white-space: nowrap;
   }
   .row .path .pr-id { color: var(--text-dim); }
+  .row .path a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .row .path a:hover { color: var(--accent); }
+  .row .path a:hover .pr-id { color: var(--accent); }
+  .row .path a:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
 
   .row .time {
     color: var(--text-dim);
@@ -191,6 +202,37 @@ _FORM_HTML = """<!doctype html>
     color: var(--text-dim);
     font-size: 13px;
     padding: 20px 0;
+  }
+
+  .pager {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 16px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .pager[hidden] { display: none; }
+
+  .pager button {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 400;
+    padding: 5px 10px;
+  }
+
+  .pager button:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--text-dim);
+    filter: none;
+  }
+
+  .pager button:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
 
   .fade-in {
@@ -225,6 +267,11 @@ _FORM_HTML = """<!doctype html>
     <span class="count" id="log-count"></span>
   </div>
   <div id="log"><p class="empty">Loading&hellip;</p></div>
+  <div class="pager" id="pager" hidden>
+    <button type="button" id="prev-page">&larr; Newer</button>
+    <span id="pager-label"></span>
+    <button type="button" id="next-page">Older &rarr;</button>
+  </div>
 </main>
 
 <script>
@@ -234,6 +281,13 @@ const logCountEl = document.getElementById("log-count");
 const form = document.getElementById("review-form");
 const submitBtn = document.getElementById("submit-btn");
 const urlInput = document.getElementById("pr_url");
+const pagerEl = document.getElementById("pager");
+const pagerLabelEl = document.getElementById("pager-label");
+const prevPageBtn = document.getElementById("prev-page");
+const nextPageBtn = document.getElementById("next-page");
+
+const PER_PAGE = 10;
+let currentPage = 1;
 
 function repoAndPr(repo_slug, pr_id) {
   return `${repo_slug} <span class="pr-id">#${pr_id}</span>`;
@@ -248,30 +302,50 @@ function formatTime(iso) {
   return sameDay ? time : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
 }
 
-function renderLog(reviews) {
-  logCountEl.textContent = reviews.length ? `${reviews.length}` : "";
+function renderLog(data) {
+  const reviews = data.reviews || [];
+  logCountEl.textContent = data.total ? `${data.total}` : "";
+
   if (!reviews.length) {
-    logEl.innerHTML = '<p class="empty">No PRs reviewed yet. They will appear here once the bot runs.</p>';
-    return;
+    logEl.innerHTML = currentPage === 1
+      ? '<p class="empty">No PRs reviewed yet. They will appear here once the bot runs.</p>'
+      : '<p class="empty">No more reviews.</p>';
+  } else {
+    logEl.innerHTML = reviews.map(r => `
+      <div class="row">
+        <span class="glyph">&#10003;</span>
+        <span class="path">
+          <a href="${r.pr_url}" target="_blank" rel="noopener noreferrer">${repoAndPr(r.repo_slug, r.pr_id)}</a>
+        </span>
+        <span class="time">${formatTime(r.reviewed_at)}</span>
+      </div>
+    `).join("");
   }
-  logEl.innerHTML = reviews.map(r => `
-    <div class="row">
-      <span class="glyph">&#10003;</span>
-      <span class="path">${repoAndPr(r.repo_slug, r.pr_id)}</span>
-      <span class="time">${formatTime(r.reviewed_at)}</span>
-    </div>
-  `).join("");
+
+  const totalPages = data.total_pages || 1;
+  pagerEl.hidden = totalPages <= 1;
+  pagerLabelEl.textContent = `page ${data.page || 1} of ${totalPages}`;
+  prevPageBtn.disabled = (data.page || 1) <= 1;
+  nextPageBtn.disabled = (data.page || 1) >= totalPages;
 }
 
-async function loadReviews() {
+async function loadReviews(page = currentPage) {
   try {
-    const res = await fetch("/reviews");
+    const res = await fetch(`/reviews?page=${page}&per_page=${PER_PAGE}`);
     const data = await res.json();
-    renderLog(data.reviews || []);
+    currentPage = data.page || page;
+    renderLog(data);
   } catch {
     logEl.innerHTML = '<p class="empty">Could not load review history.</p>';
   }
 }
+
+prevPageBtn.addEventListener("click", () => {
+  if (currentPage > 1) loadReviews(currentPage - 1);
+});
+nextPageBtn.addEventListener("click", () => {
+  loadReviews(currentPage + 1);
+});
 
 function prependPending(repoGuess) {
   const row = document.createElement("div");
@@ -295,7 +369,7 @@ form.addEventListener("submit", async (e) => {
   submitBtn.disabled = true;
   statusEl.textContent = "Reviewing\u2026";
   statusEl.className = "status-line";
-  const pendingRow = prependPending(pr_url.replace(/^https?:\\/\\//, ""));
+  const pendingRow = currentPage === 1 ? prependPending(pr_url.replace(/^https?:\\/\\//, "")) : null;
 
   try {
     const res = await fetch("/review", {
@@ -304,7 +378,7 @@ form.addEventListener("submit", async (e) => {
       body: JSON.stringify({ pr_url }),
     });
     const data = await res.json();
-    pendingRow.remove();
+    if (pendingRow) pendingRow.remove();
 
     if (res.ok) {
       statusEl.textContent = `Reviewed ${data.repo_slug} #${data.pr_id}`;
@@ -315,17 +389,19 @@ form.addEventListener("submit", async (e) => {
       statusEl.className = "status-line err";
     }
   } catch {
-    pendingRow.remove();
+    if (pendingRow) pendingRow.remove();
     statusEl.textContent = "Review failed: could not reach the server.";
     statusEl.className = "status-line err";
   } finally {
     submitBtn.disabled = false;
-    loadReviews();
+    loadReviews(1);
   }
 });
 
 loadReviews();
-setInterval(loadReviews, 15000);
+setInterval(() => {
+  if (currentPage === 1) loadReviews(1);
+}, 15000);
 </script>
 </body>
 </html>
@@ -361,8 +437,24 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
         return {"status": "ok"}
 
     @app.get("/reviews")
-    async def reviews() -> dict:
-        return {"reviews": list_recent_reviews(config.db_path)}
+    async def reviews(page: int = 1, per_page: int = 10) -> dict:
+        page = max(page, 1)
+        per_page = min(max(per_page, 1), 100)
+        offset = (page - 1) * per_page
+        rows = list_recent_reviews(config.db_path, limit=per_page, offset=offset)
+        for row in rows:
+            row["pr_url"] = (
+                f"https://bitbucket.org/{config.bitbucket_workspace}/{row['repo_slug']}"
+                f"/pull-requests/{row['pr_id']}"
+            )
+        total = count_reviews(config.db_path)
+        return {
+            "reviews": rows,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": max((total + per_page - 1) // per_page, 1),
+        }
 
     @app.post("/review")
     async def review(req: ReviewRequest) -> dict:

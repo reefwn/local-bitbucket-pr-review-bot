@@ -52,17 +52,32 @@ def mark_reviewed(db_path: str, repo_slug: str, pr_id: int, reviewed_at: str, co
         conn.close()
 
 
-def list_recent_reviews(db_path: str, limit: int = 20) -> list[dict]:
-    """Most recently reviewed PRs, newest first, for display on the web dashboard."""
+def list_recent_reviews(db_path: str, limit: int = 20, offset: int = 0) -> list[dict]:
+    """Reviewed PRs, newest first, for display on the web dashboard.
+
+    Supports paging arbitrarily far back via offset — bounded only by how
+    much history is retained in the reviewed_prs table.
+    """
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT repo_slug, pr_id, reviewed_at, last_commit_hash FROM reviewed_prs "
-            "ORDER BY reviewed_at DESC LIMIT ?",
-            (limit,),
+            "ORDER BY reviewed_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
         ).fetchall()
         return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def count_reviews(db_path: str) -> int:
+    """Total number of reviewed PRs on record, for computing page count."""
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM reviewed_prs").fetchone()
+        return row[0] if row else 0
     finally:
         conn.close()

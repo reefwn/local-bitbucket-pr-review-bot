@@ -41,7 +41,11 @@ def test_reviews_empty_before_any_review(tmp_path):
     client = TestClient(app)
     resp = client.get("/reviews")
     assert resp.status_code == 200
-    assert resp.json() == {"reviews": []}
+    body = resp.json()
+    assert body["reviews"] == []
+    assert body["total"] == 0
+    assert body["page"] == 1
+    assert body["total_pages"] == 1
 
 
 def test_reviews_lists_reviewed_prs_after_a_successful_review(tmp_path):
@@ -63,10 +67,39 @@ def test_reviews_lists_reviewed_prs_after_a_successful_review(tmp_path):
         resp = client.get("/reviews")
 
     assert resp.status_code == 200
-    reviews = resp.json()["reviews"]
+    body = resp.json()
+    reviews = body["reviews"]
     assert len(reviews) == 1
     assert reviews[0]["repo_slug"] == "my-repo"
     assert reviews[0]["pr_id"] == 5
+    assert reviews[0]["pr_url"] == "https://bitbucket.org/my-ws/my-repo/pull-requests/5"
+    assert body["total"] == 1
+
+
+def test_reviews_paginates_at_ten_per_page_by_default(tmp_path):
+    config = _config(tmp_path)
+    from src.db import init_db, mark_reviewed
+
+    init_db(config.db_path)
+    for i in range(25):
+        mark_reviewed(config.db_path, "my-repo", i, f"2026-09-04T{i:02d}:00:00+00:00", f"hash-{i}")
+
+    app = create_app(config, client=AsyncMock())
+    client = TestClient(app)
+
+    page_1 = client.get("/reviews").json()
+    assert len(page_1["reviews"]) == 10
+    assert page_1["page"] == 1
+    assert page_1["total"] == 25
+    assert page_1["total_pages"] == 3
+    assert page_1["reviews"][0]["pr_id"] == 24
+
+    page_3 = client.get("/reviews?page=3").json()
+    assert len(page_3["reviews"]) == 5
+    assert page_3["page"] == 3
+
+    page_4 = client.get("/reviews?page=4").json()
+    assert page_4["reviews"] == []
 
 
 def test_review_rejects_malformed_url(tmp_path):
