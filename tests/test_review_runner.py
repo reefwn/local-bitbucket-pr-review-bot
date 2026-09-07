@@ -53,15 +53,36 @@ def test_write_mcp_config(tmp_path):
 
 
 def test_write_kiro_mcp_config(tmp_path):
-    path = str(tmp_path / "kiro-mcp-config.json")
+    path = str(tmp_path / "pr-reviewer.json")
     write_kiro_mcp_config(path, "http://mcp:7390/mcp")
     with open(path) as f:
         config = json.load(f)
-    assert config == {
-        "mcpServers": {
-            "bitbucket-pr": {"url": "http://mcp:7390/mcp", "disabled": False}
-        }
+    assert config["name"] == "pr-reviewer"
+    assert config["mcpServers"] == {
+        "bitbucket-pr": {"url": "http://mcp:7390/mcp", "disabled": False}
     }
+    for tool in (
+        "@bitbucket-pr/bitbucket_get_pr",
+        "@bitbucket-pr/bitbucket_get_pr_diff",
+        "@bitbucket-pr/bitbucket_list_pr_comments",
+        "@bitbucket-pr/bitbucket_create_pr_comment",
+        "@bitbucket-pr/bitbucket_approve_pr",
+        "@bitbucket-pr/bitbucket_request_changes_pr",
+    ):
+        assert tool in config["tools"]
+        assert tool in config["allowedTools"]
+
+
+def test_write_kiro_mcp_config_uses_literal_url_not_env_placeholder(tmp_path):
+    """Regression: Kiro CLI's ${VAR} expansion does not apply to a remote MCP
+    server's url field — it must be a literal, resolved URL or the server
+    fails to initialize at runtime ("relative URL without a base")."""
+    path = str(tmp_path / "pr-reviewer.json")
+    write_kiro_mcp_config(path, "http://mcp:7390/mcp")
+    with open(path) as f:
+        config = json.load(f)
+    assert config["mcpServers"]["bitbucket-pr"]["url"] == "http://mcp:7390/mcp"
+    assert "$" not in config["mcpServers"]["bitbucket-pr"]["url"]
 
 
 def test_run_review_invokes_claude_with_expected_args(tmp_path):

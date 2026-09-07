@@ -68,18 +68,46 @@ def write_mcp_config(path: str, mcp_url: str) -> None:
         json.dump(config, f)
 
 
-def write_kiro_mcp_config(path: str, mcp_url: str) -> None:
-    """Write the MCP config file Kiro CLI needs to reach the bundled Bitbucket-PR MCP server.
+_KIRO_AGENT_TOOLS = (
+    "@bitbucket-pr/bitbucket_get_pr",
+    "@bitbucket-pr/bitbucket_get_pr_diff",
+    "@bitbucket-pr/bitbucket_list_pr_comments",
+    "@bitbucket-pr/bitbucket_create_pr_comment",
+    "@bitbucket-pr/bitbucket_approve_pr",
+    "@bitbucket-pr/bitbucket_request_changes_pr",
+)
 
-    Written as a standalone mcp.json (Kiro's `--mcp-config` equivalent is
-    scoped via the `pr-reviewer` agent config, but the agent's own
-    `mcpServers.bitbucket-pr.url` uses `${MCP_URL}` expansion — this file is
-    kept for parity with Claude's config and for tooling/tests that expect a
-    materialized config file on disk).
+KIRO_AGENT_DIR = ".kiro/agents"
+
+
+def write_kiro_mcp_config(path: str, mcp_url: str) -> None:
+    """Write the resolved `pr-reviewer` Kiro agent config with a literal MCP URL.
+
+    Kiro CLI's `${VAR}` expansion does not apply to a remote MCP server's
+    `url` field (confirmed: it fails at runtime with "relative URL without a
+    base" when left as `${MCP_URL}` in the static .kiro/agents/pr-reviewer.json
+    checked into the repo). So at startup we regenerate that same agent file
+    with the actual URL substituted in, overwriting the placeholder version.
+
+    `path` is expected to be the agent config path (e.g.
+    `.kiro/agents/pr-reviewer.json`), not a standalone mcp.json.
     """
-    config = {"mcpServers": {"bitbucket-pr": {"url": mcp_url, "disabled": False}}}
+    config = {
+        "name": "pr-reviewer",
+        "description": "Headless Bitbucket PR reviewer used as the Kiro fallback when Claude hits its usage limit.",
+        "prompt": (
+            "You review a single Bitbucket pull request per invocation using only the "
+            "bitbucket-pr MCP tools. Fetch the diff and existing comments, post one review "
+            "comment, then approve the PR or request changes based on the review. Never "
+            "decline or close a PR."
+        ),
+        "tools": list(_KIRO_AGENT_TOOLS),
+        "allowedTools": list(_KIRO_AGENT_TOOLS),
+        "mcpServers": {"bitbucket-pr": {"url": mcp_url, "disabled": False}},
+    }
     with open(path, "w") as f:
-        json.dump(config, f)
+        json.dump(config, f, indent=2)
+        f.write("\n")
 
 
 def _is_usage_limit_failure(returncode: int, stdout: str, stderr: str) -> bool:

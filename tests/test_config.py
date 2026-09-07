@@ -23,7 +23,7 @@ def test_config_defaults():
     assert config.poll_interval_minutes == 10
     assert config.mcp_url == "http://mcp:7390/mcp"
     assert config.mcp_config_path == "/app/mcp-config.json"
-    assert config.kiro_mcp_config_path == "/app/kiro-mcp-config.json"
+    assert config.kiro_mcp_config_path == "/app/.kiro/agents/pr-reviewer.json"
     assert config.kiro_agent_name == "pr-reviewer"
     assert config.db_path == "/data/reviewed_prs.db"
 

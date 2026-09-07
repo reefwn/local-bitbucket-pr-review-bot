@@ -148,8 +148,11 @@ A single function, used by both `bot` and `web`, that:
    using the `pr-reviewer` agent config (`.kiro/agents/pr-reviewer.json`),
    which declares `mcpServers.bitbucket-pr` pointed at the same `mcp`
    service and an `allowedTools` list equivalent to Claude's
-   `--allowedTools`. If the Kiro fallback also fails, that failure
-   propagates.
+   `--allowedTools`. This file is regenerated at startup with the literal
+   `MCP_URL` value (Kiro CLI's `${VAR}` expansion does not apply to a
+   remote MCP server's `url` field — a static placeholder there fails at
+   runtime with `relative URL without a base`). If the Kiro fallback also
+   fails, that failure propagates.
 6. Runner checks the final exit code and result for logging/status; does
    not retry beyond the single Claude→Kiro fallback.
 
@@ -226,7 +229,7 @@ both `bot` and `web`.
 | `POLL_INTERVAL_MINUTES` | bot | Poll cycle interval, default `10` |
 | `MCP_URL` | bot, web | URL of the `mcp` service, e.g. `http://mcp:7390/mcp` |
 | `MCP_CONFIG_PATH` | bot, web | Path to write Claude's MCP config file, default `/app/mcp-config.json` |
-| `KIRO_MCP_CONFIG_PATH` | bot, web | Path to write Kiro's MCP config file, default `/app/kiro-mcp-config.json` |
+| `KIRO_MCP_CONFIG_PATH` | bot, web | Path to the `pr-reviewer` Kiro agent config, regenerated at startup with the literal `MCP_URL`, default `/app/.kiro/agents/pr-reviewer.json` |
 | `KIRO_AGENT_NAME` | bot, web | Kiro agent config name to use for the fallback review, default `pr-reviewer` |
 
 

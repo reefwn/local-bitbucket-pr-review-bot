@@ -81,9 +81,9 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `kiro-auth`):
      --output-format text
    ```
    using the `pr-reviewer` agent config (`.kiro/agents/pr-reviewer.json`),
-   which points `mcpServers.bitbucket-pr` at the same `mcp` service
-   (`MCP_URL`) and declares the equivalent Bitbucket PR tools in
-   `allowedTools` (`@bitbucket-pr/bitbucket_get_pr`,
+   which points `mcpServers.bitbucket-pr` at the same `mcp` service and
+   declares the equivalent Bitbucket PR tools in `allowedTools`
+   (`@bitbucket-pr/bitbucket_get_pr`,
    `@bitbucket-pr/bitbucket_get_pr_diff`,
    `@bitbucket-pr/bitbucket_list_pr_comments`,
    `@bitbucket-pr/bitbucket_create_pr_comment`,
@@ -100,8 +100,16 @@ only spends Kiro's quota when Claude genuinely can't run.
 `.kiro/agents/pr-reviewer.json` is the headless agent used for the
 fallback path. It is intentionally narrow:
 
-- `mcpServers.bitbucket-pr` — remote HTTP server pointed at `MCP_URL`
-  (same server the Claude path uses).
+- `mcpServers.bitbucket-pr` — remote HTTP server pointed at `MCP_URL`'s
+  **literal value**. Kiro CLI's `${VAR}` expansion does not apply to a
+  remote MCP server's `url` field — a static `"${MCP_URL}"` in this file
+  fails at runtime with `relative URL without a base`. Because of that,
+  `write_kiro_mcp_config()` in `review_runner.py` regenerates this exact
+  file at bot/web startup with the actual `MCP_URL` value substituted in,
+  overwriting the checked-in placeholder. The checked-in version (with a
+  literal default like `http://mcp:7390/mcp`) exists so
+  `kiro-cli agent validate` and local testing work without first running
+  the app.
 - `allowedTools` — only the six Bitbucket PR tools listed above, so Kiro
   never prompts for tool approval in `--no-interactive` mode and can't
   reach outside the PR-review scope.

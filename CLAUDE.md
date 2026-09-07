@@ -78,9 +78,12 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `kiro-auth`):
    kiro-cli chat "<prompt>" --agent pr-reviewer --no-interactive \
      --output-format text
    ```
-   using the `pr-reviewer` agent config (`.kiro/agents/pr-reviewer.json`)
+   using the `pr-reviewer` agent config (`.kiro/agents/pr-reviewer.json`),
    which points at the same `mcp` service and allows the equivalent
-   Bitbucket PR tool set.
+   Bitbucket PR tool set. `write_kiro_mcp_config()` regenerates this file
+   at startup with the literal `MCP_URL` value — Kiro CLI's `${VAR}`
+   expansion does not apply to a remote MCP server's `url` field, so a
+   static placeholder there fails at runtime.
 4. Any other (non-usage-limit) failure from Claude propagates immediately
    — Kiro is a fallback for exhausted quota, not a general retry.
 

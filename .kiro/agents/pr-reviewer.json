@@ -20,8 +20,9 @@
   ],
   "mcpServers": {
     "bitbucket-pr": {
-      "url": "${MCP_URL}",
+      "url": "http://mcp:7390/mcp",
       "disabled": false
     }
   }
 }
+
