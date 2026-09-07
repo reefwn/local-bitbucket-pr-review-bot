@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 from src.review_runner import build_prompt, run_review, write_kiro_mcp_config, write_mcp_config
 
 
-def _claude_result(stdout="", stderr="", returncode=0):
-    return MagicMock(stdout=stdout, stderr=stderr, returncode=returncode)
+def _claude_result(stdout="", stderr="", returncode=0, args=None):
+    return MagicMock(stdout=stdout, stderr=stderr, returncode=returncode, args=args or [])
 
 
 def test_build_prompt_includes_repo_and_pr():
@@ -145,3 +145,45 @@ def test_run_review_propagates_kiro_failure_after_claude_usage_limit(tmp_path):
             assert False, "expected CalledProcessError"
         except subprocess.CalledProcessError:
             pass
+
+
+def test_run_review_redacts_long_prompt_arg_in_generic_failure(tmp_path):
+    """The raised CalledProcessError should not embed the full (potentially huge) prompt text."""
+    config_path = str(tmp_path / "mcp-config.json")
+    long_comment = "x" * 5000
+    prompt = build_prompt("my-repo", 42, long_comment)
+    fake_result = _claude_result(
+        stdout="", stderr="tool crashed unexpectedly", returncode=1,
+        args=["claude", "-p", prompt, "--mcp-config", config_path],
+    )
+    with patch("subprocess.run", return_value=fake_result):
+        try:
+            run_review("my-repo", 42, long_comment, config_path)
+            assert False, "expected CalledProcessError"
+        except subprocess.CalledProcessError as e:
+            args_str = " ".join(e.cmd)
+            assert long_comment not in args_str
+            assert "<prompt," in args_str
+
+
+def test_run_review_redacts_long_prompt_arg_in_kiro_failure(tmp_path):
+    """Same redaction should apply to the Kiro fallback's own failure."""
+    config_path = str(tmp_path / "mcp-config.json")
+    long_comment = "y" * 5000
+    prompt = build_prompt("my-repo", 42, long_comment)
+    claude_result = _claude_result(
+        stdout="", stderr="usage limit exceeded", returncode=1,
+        args=["claude", "-p", prompt, "--mcp-config", config_path],
+    )
+    kiro_result = _claude_result(
+        stdout="", stderr="kiro auth expired", returncode=1,
+        args=["kiro-cli", "chat", prompt, "--agent", "pr-reviewer"],
+    )
+    with patch("subprocess.run", side_effect=[claude_result, kiro_result]):
+        try:
+            run_review("my-repo", 42, long_comment, config_path)
+            assert False, "expected CalledProcessError"
+        except subprocess.CalledProcessError as e:
+            args_str = " ".join(e.cmd)
+            assert long_comment not in args_str
+            assert "<prompt," in args_str

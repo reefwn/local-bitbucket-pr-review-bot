@@ -129,6 +129,16 @@ def _run_kiro(prompt: str, agent_name: str = KIRO_AGENT_NAME) -> subprocess.Comp
     )
 
 
+def _redact_prompt_arg(args: list[str]) -> list[str]:
+    """Replace the (potentially huge) prompt argument with a placeholder for log/error output.
+
+    Any argument over 200 chars is almost certainly the review prompt, not a
+    flag or path — long enough to distinguish reliably without tracking
+    positional argument indices per CLI.
+    """
+    return [f"<prompt, {len(arg)} chars>" if len(arg) > 200 else arg for arg in args]
+
+
 def run_review(
     repo_slug: str,
     pr_id: int,
@@ -153,8 +163,12 @@ def run_review(
 
     if not usage_limit_hit:
         # Generic failure — surface it the same way subprocess.run(check=True) would.
+        logger.error(
+            "Claude failed reviewing %s PR #%s (exit %s): %s",
+            repo_slug, pr_id, result.returncode, result.stderr.strip() or result.stdout.strip(),
+        )
         raise subprocess.CalledProcessError(
-            result.returncode, result.args, output=result.stdout, stderr=result.stderr
+            result.returncode, _redact_prompt_arg(result.args), output=result.stdout, stderr=result.stderr
         )
 
     logger.warning(
@@ -162,7 +176,14 @@ def run_review(
     )
     kiro_result = _run_kiro(prompt, kiro_agent_name)
     if kiro_result.returncode != 0:
+        logger.error(
+            "Kiro fallback failed reviewing %s PR #%s (exit %s): %s",
+            repo_slug, pr_id, kiro_result.returncode, kiro_result.stderr.strip() or kiro_result.stdout.strip(),
+        )
         raise subprocess.CalledProcessError(
-            kiro_result.returncode, kiro_result.args, output=kiro_result.stdout, stderr=kiro_result.stderr
+            kiro_result.returncode,
+            _redact_prompt_arg(kiro_result.args),
+            output=kiro_result.stdout,
+            stderr=kiro_result.stderr,
         )
     return {"result": kiro_result.stdout, "agent": "kiro"}
