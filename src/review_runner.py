@@ -1,5 +1,9 @@
 import json
+import logging
+import re
 import subprocess
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_TOOLS = (
     "mcp__bitbucket-pr__bitbucket_get_pr,"
@@ -9,6 +13,18 @@ _ALLOWED_TOOLS = (
     "mcp__bitbucket-pr__bitbucket_approve_pr,"
     "mcp__bitbucket-pr__bitbucket_request_changes_pr"
 )
+
+# Substrings seen in Claude Code's headless output when the account has
+# exhausted its usage/rate/session quota (case-insensitive match against the
+# JSON `result` field, or stderr on a non-zero exit).
+_USAGE_LIMIT_PATTERNS = (
+    "usage limit",
+    "session limit",
+    "rate limit",
+    "quota",
+)
+
+KIRO_AGENT_NAME = "pr-reviewer"
 
 
 def build_prompt(repo_slug: str, pr_id: int, existing_comments: str) -> str:
@@ -52,13 +68,69 @@ def write_mcp_config(path: str, mcp_url: str) -> None:
         json.dump(config, f)
 
 
-def run_review(repo_slug: str, pr_id: int, existing_comments: str, mcp_config_path: str) -> dict:
-    """Run headless Claude to review and comment on a PR. Returns the parsed JSON result.
+_KIRO_AGENT_TOOLS = (
+    "@bitbucket-pr/bitbucket_get_pr",
+    "@bitbucket-pr/bitbucket_get_pr_diff",
+    "@bitbucket-pr/bitbucket_list_pr_comments",
+    "@bitbucket-pr/bitbucket_create_pr_comment",
+    "@bitbucket-pr/bitbucket_approve_pr",
+    "@bitbucket-pr/bitbucket_request_changes_pr",
+)
 
-    Raises subprocess.CalledProcessError if the claude invocation fails.
+KIRO_AGENT_DIR = ".kiro/agents"
+
+
+def write_kiro_mcp_config(path: str, mcp_url: str) -> None:
+    """Write the resolved `pr-reviewer` Kiro agent config with a literal MCP URL.
+
+    Kiro CLI's `${VAR}` expansion does not apply to a remote MCP server's
+    `url` field (confirmed: it fails at runtime with "relative URL without a
+    base" when left as `${MCP_URL}` in the static .kiro/agents/pr-reviewer.json
+    checked into the repo). So at startup we regenerate that same agent file
+    with the actual URL substituted in, overwriting the placeholder version.
+
+    `path` is expected to be the agent config path (e.g.
+    `.kiro/agents/pr-reviewer.json`), not a standalone mcp.json.
     """
-    prompt = build_prompt(repo_slug, pr_id, existing_comments)
-    result = subprocess.run(
+    config = {
+        "name": "pr-reviewer",
+        "description": "Headless Bitbucket PR reviewer used as the Kiro fallback when Claude hits its usage limit.",
+        "prompt": (
+            "You review a single Bitbucket pull request per invocation using only the "
+            "bitbucket-pr MCP tools. Fetch the diff and existing comments, post one review "
+            "comment, then approve the PR or request changes based on the review. Never "
+            "decline or close a PR."
+        ),
+        "tools": list(_KIRO_AGENT_TOOLS),
+        "allowedTools": list(_KIRO_AGENT_TOOLS),
+        "mcpServers": {"bitbucket-pr": {"url": mcp_url, "disabled": False}},
+    }
+    with open(path, "w") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+
+
+def _is_usage_limit_failure(returncode: int, stdout: str, stderr: str) -> bool:
+    """Decide whether a Claude invocation failed because of an exhausted usage quota.
+
+    Claude Code's headless mode can report a usage-limit condition either as
+    a non-zero exit (auth/rate-limit failures) or as exit 0 with the limit
+    message embedded in the JSON `result` field. We check both.
+    """
+    haystack = f"{stdout}\n{stderr}".lower()
+    if any(pattern in haystack for pattern in _USAGE_LIMIT_PATTERNS):
+        return True
+    if returncode != 0:
+        # Non-zero exits are usage-limit failures only if they also mention
+        # a limit/quota phrase (already checked above); otherwise they're
+        # generic failures (bad prompt, tool crash, etc.) that should
+        # propagate rather than trigger a fallback.
+        return False
+    return False
+
+
+def _run_claude(prompt: str, mcp_config_path: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
         [
             "claude", "-p", prompt,
             "--mcp-config", mcp_config_path,
@@ -67,7 +139,79 @@ def run_review(repo_slug: str, pr_id: int, existing_comments: str, mcp_config_pa
         ],
         capture_output=True,
         text=True,
-        check=True,
         timeout=600,
     )
-    return json.loads(result.stdout)
+
+
+def _run_kiro(prompt: str, agent_name: str = KIRO_AGENT_NAME) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "kiro-cli", "chat", prompt,
+            "--agent", agent_name,
+            "--no-interactive",
+            "--output-format", "text",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+
+
+def _redact_prompt_arg(args: list[str]) -> list[str]:
+    """Replace the (potentially huge) prompt argument with a placeholder for log/error output.
+
+    Any argument over 200 chars is almost certainly the review prompt, not a
+    flag or path — long enough to distinguish reliably without tracking
+    positional argument indices per CLI.
+    """
+    return [f"<prompt, {len(arg)} chars>" if len(arg) > 200 else arg for arg in args]
+
+
+def run_review(
+    repo_slug: str,
+    pr_id: int,
+    existing_comments: str,
+    mcp_config_path: str,
+    kiro_agent_name: str = KIRO_AGENT_NAME,
+) -> dict:
+    """Run headless Claude to review and comment on a PR, falling back to Kiro CLI
+    if Claude reports a usage-limit failure. Returns the parsed JSON result
+    (or, when the Kiro fallback ran, a dict wrapping its plain-text output).
+
+    Raises subprocess.CalledProcessError if the invocation fails for a reason
+    other than an exhausted Claude usage quota, or if the Kiro fallback itself
+    fails.
+    """
+    prompt = build_prompt(repo_slug, pr_id, existing_comments)
+    result = _run_claude(prompt, mcp_config_path)
+    usage_limit_hit = _is_usage_limit_failure(result.returncode, result.stdout, result.stderr)
+
+    if result.returncode == 0 and not usage_limit_hit:
+        return json.loads(result.stdout)
+
+    if not usage_limit_hit:
+        # Generic failure — surface it the same way subprocess.run(check=True) would.
+        logger.error(
+            "Claude failed reviewing %s PR #%s (exit %s): %s",
+            repo_slug, pr_id, result.returncode, result.stderr.strip() or result.stdout.strip(),
+        )
+        raise subprocess.CalledProcessError(
+            result.returncode, _redact_prompt_arg(result.args), output=result.stdout, stderr=result.stderr
+        )
+
+    logger.warning(
+        "Claude hit a usage limit reviewing %s PR #%s; falling back to Kiro CLI", repo_slug, pr_id
+    )
+    kiro_result = _run_kiro(prompt, kiro_agent_name)
+    if kiro_result.returncode != 0:
+        logger.error(
+            "Kiro fallback failed reviewing %s PR #%s (exit %s): %s",
+            repo_slug, pr_id, kiro_result.returncode, kiro_result.stderr.strip() or kiro_result.stdout.strip(),
+        )
+        raise subprocess.CalledProcessError(
+            kiro_result.returncode,
+            _redact_prompt_arg(kiro_result.args),
+            output=kiro_result.stdout,
+            stderr=kiro_result.stderr,
+        )
+    return {"result": kiro_result.stdout, "agent": "kiro"}

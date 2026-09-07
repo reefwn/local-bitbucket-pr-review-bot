@@ -15,6 +15,7 @@ def _config(tmp_path):
         poll_interval_minutes=10,
         mcp_url="http://mcp:7390/mcp",
         mcp_config_path=str(tmp_path / "mcp-config.json"),
+        kiro_mcp_config_path=str(tmp_path / "kiro-mcp-config.json"),
         db_path=str(tmp_path / "reviewed.db"),
     )
 

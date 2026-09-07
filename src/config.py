@@ -20,6 +20,8 @@ class Config:
     poll_interval_minutes: int = int(os.getenv("POLL_INTERVAL_MINUTES", "10"))
     mcp_url: str = os.getenv("MCP_URL", "http://mcp:7390/mcp")
     mcp_config_path: str = os.getenv("MCP_CONFIG_PATH", "/app/mcp-config.json")
+    kiro_mcp_config_path: str = os.getenv("KIRO_MCP_CONFIG_PATH", "/app/.kiro/agents/pr-reviewer.json")
+    kiro_agent_name: str = os.getenv("KIRO_AGENT_NAME", "pr-reviewer")
     db_path: str = os.getenv("DB_PATH", "/data/reviewed_prs.db")
 
     @property
