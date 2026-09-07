@@ -50,3 +50,19 @@ def mark_reviewed(db_path: str, repo_slug: str, pr_id: int, reviewed_at: str, co
         conn.commit()
     finally:
         conn.close()
+
+
+def list_recent_reviews(db_path: str, limit: int = 20) -> list[dict]:
+    """Most recently reviewed PRs, newest first, for display on the web dashboard."""
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT repo_slug, pr_id, reviewed_at, last_commit_hash FROM reviewed_prs "
+            "ORDER BY reviewed_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()

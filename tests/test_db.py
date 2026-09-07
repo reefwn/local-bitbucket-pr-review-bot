@@ -1,4 +1,4 @@
-from src.db import init_db, is_reviewed, mark_reviewed
+from src.db import init_db, is_reviewed, list_recent_reviews, mark_reviewed
 
 
 def test_is_reviewed_false_before_marking(tmp_path):
@@ -78,3 +78,28 @@ def test_init_db_migrates_existing_db_missing_commit_hash_column(tmp_path):
 
     assert is_reviewed(db_path, "my-repo", 1, "") is True
     assert is_reviewed(db_path, "my-repo", 1, "hash-a") is False
+
+
+def test_list_recent_reviews_empty_before_any_review(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    init_db(db_path)
+    assert list_recent_reviews(db_path) == []
+
+
+def test_list_recent_reviews_newest_first(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    init_db(db_path)
+    mark_reviewed(db_path, "repo-a", 1, "2026-09-04T00:00:00+00:00", "hash-a")
+    mark_reviewed(db_path, "repo-b", 2, "2026-09-04T01:00:00+00:00", "hash-b")
+    reviews = list_recent_reviews(db_path)
+    assert [r["repo_slug"] for r in reviews] == ["repo-b", "repo-a"]
+    assert reviews[0]["pr_id"] == 2
+    assert reviews[0]["reviewed_at"] == "2026-09-04T01:00:00+00:00"
+
+
+def test_list_recent_reviews_respects_limit(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    init_db(db_path)
+    for i in range(5):
+        mark_reviewed(db_path, "repo-a", i, f"2026-09-04T0{i}:00:00+00:00", f"hash-{i}")
+    assert len(list_recent_reviews(db_path, limit=3)) == 3

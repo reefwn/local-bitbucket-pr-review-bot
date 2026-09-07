@@ -36,6 +36,39 @@ def test_index_serves_form_with_url_input_and_submit(tmp_path):
     assert "<button" in resp.text
 
 
+def test_reviews_empty_before_any_review(tmp_path):
+    app = create_app(_config(tmp_path), client=AsyncMock())
+    client = TestClient(app)
+    resp = client.get("/reviews")
+    assert resp.status_code == 200
+    assert resp.json() == {"reviews": []}
+
+
+def test_reviews_lists_reviewed_prs_after_a_successful_review(tmp_path):
+    config = _config(tmp_path)
+    fake_client = AsyncMock()
+
+    async def fake_get(path, params=None):
+        if path.endswith("/comments"):
+            return {"values": []}
+        return {"source": {"commit": {"hash": "hash-a"}}}
+
+    fake_client.get.side_effect = fake_get
+    app = create_app(config, client=fake_client)
+
+    with patch("src.web.app.run_review") as mock_run_review:
+        mock_run_review.return_value = {"result": "ok"}
+        client = TestClient(app)
+        client.post("/review", json={"pr_url": "https://bitbucket.org/my-ws/my-repo/pull-requests/5"})
+        resp = client.get("/reviews")
+
+    assert resp.status_code == 200
+    reviews = resp.json()["reviews"]
+    assert len(reviews) == 1
+    assert reviews[0]["repo_slug"] == "my-repo"
+    assert reviews[0]["pr_id"] == 5
+
+
 def test_review_rejects_malformed_url(tmp_path):
     app = create_app(_config(tmp_path), client=AsyncMock())
     client = TestClient(app)
