@@ -45,7 +45,13 @@ def test_review_rejects_malformed_url(tmp_path):
 def test_review_success_marks_reviewed(tmp_path):
     config = _config(tmp_path)
     fake_client = AsyncMock()
-    fake_client.get.return_value = {"values": []}
+
+    async def fake_get(path, params=None):
+        if path.endswith("/comments"):
+            return {"values": []}
+        return {"source": {"commit": {"hash": "hash-a"}}}
+
+    fake_client.get.side_effect = fake_get
     app = create_app(config, client=fake_client)
 
     with patch("src.web.app.run_review") as mock_run_review:
@@ -63,13 +69,19 @@ def test_review_success_marks_reviewed(tmp_path):
     mock_run_review.assert_called_once()
 
     from src.db import is_reviewed
-    assert is_reviewed(config.db_path, "my-repo", 5) is True
+    assert is_reviewed(config.db_path, "my-repo", 5, "hash-a") is True
 
 
 def test_review_returns_json_error_when_run_review_fails(tmp_path):
     config = _config(tmp_path)
     fake_client = AsyncMock()
-    fake_client.get.return_value = {"values": []}
+
+    async def fake_get(path, params=None):
+        if path.endswith("/comments"):
+            return {"values": []}
+        return {"source": {"commit": {"hash": "hash-a"}}}
+
+    fake_client.get.side_effect = fake_get
     app = create_app(config, client=fake_client)
 
     with patch("src.web.app.run_review") as mock_run_review:

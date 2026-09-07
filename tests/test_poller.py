@@ -27,10 +27,48 @@ def test_filter_recent_boundary_is_inclusive():
     assert [pr["id"] for pr in result] == [1]
 
 
+def test_filter_recent_keeps_pr_updated_within_window_even_if_created_outside():
+    now = datetime(2026, 9, 4, 12, 0, 0, tzinfo=timezone.utc)
+    prs = [
+        {
+            "id": 1,
+            "created_on": "2026-09-04T09:00:00.000000Z",  # 3h ago - outside
+            "updated_on": "2026-09-04T11:55:00.000000Z",  # 5 min ago - inside (new commit pushed)
+        }
+    ]
+    result = filter_recent(prs, now, window_minutes=10)
+    assert [pr["id"] for pr in result] == [1]
+
+
+def test_filter_recent_drops_pr_stale_on_both_created_and_updated():
+    now = datetime(2026, 9, 4, 12, 0, 0, tzinfo=timezone.utc)
+    prs = [
+        {
+            "id": 1,
+            "created_on": "2026-09-04T09:00:00.000000Z",
+            "updated_on": "2026-09-04T09:30:00.000000Z",
+        }
+    ]
+    result = filter_recent(prs, now, window_minutes=10)
+    assert result == []
+
+
 def test_filter_unreviewed_skips_already_reviewed(tmp_path):
     db_path = str(tmp_path / "reviewed.db")
     init_db(db_path)
-    mark_reviewed(db_path, "my-repo", 1, "2026-09-04T00:00:00+00:00")
-    prs = [{"id": 1}, {"id": 2}]
+    mark_reviewed(db_path, "my-repo", 1, "2026-09-04T00:00:00+00:00", "hash-a")
+    prs = [
+        {"id": 1, "source": {"commit": {"hash": "hash-a"}}},
+        {"id": 2, "source": {"commit": {"hash": "hash-b"}}},
+    ]
     result = filter_unreviewed(prs, db_path, "my-repo")
     assert [pr["id"] for pr in result] == [2]
+
+
+def test_filter_unreviewed_keeps_pr_when_new_commit_pushed(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    init_db(db_path)
+    mark_reviewed(db_path, "my-repo", 1, "2026-09-04T00:00:00+00:00", "hash-a")
+    prs = [{"id": 1, "source": {"commit": {"hash": "hash-b"}}}]  # new push after review
+    result = filter_unreviewed(prs, db_path, "my-repo")
+    assert [pr["id"] for pr in result] == [1]
