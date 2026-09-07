@@ -39,7 +39,7 @@ their own):
                  └──────┬───────┘                              │
                         │                                      │
                  shared SQLite (reviewed_prs)          Bitbucket Cloud API
-                 shared claude-auth / kiro-auth / kiro-aws-sso volumes
+                 shared claude-auth / kiro-auth / kiro-aws-sso / kiro-data
 ```
 
 - **mcp**: Bitbucket PR-only MCP server (FastMCP, streamable-HTTP transport,
@@ -185,24 +185,37 @@ could hit rate limits under heavy PR volume. This is precisely the
 constraint the Kiro fallback exists to mitigate — see below.
 
 ### Kiro CLI (fallback agent)
-Kiro CLI persists its session/config under `~/.kiro` and its auth token
-cache under `~/.aws/sso/cache` (`~/.aws`). Like Claude, headless Kiro needs
-a one-time interactive login before it can run unattended.
+Kiro CLI's actual session/credentials live under
+`/root/.local/share/kiro-cli` (a SQLite store), **not** `~/.kiro` or
+`~/.aws` despite those directory names — confirmed by observing where
+`kiro-cli login` actually writes at runtime. `~/.kiro` and `~/.aws` hold
+secondary config (settings, agent configs, SSO cache) but aren't where the
+session token itself persists. Like Claude, headless Kiro needs a
+one-time interactive login before it can run unattended.
 
-Setup: named `kiro-auth` (`/root/.kiro`) and `kiro-aws-sso` (`/root/.aws`)
-volumes are mounted in both `bot` and `web` containers. On first-time
-setup, run:
+Setup: named `kiro-auth` (`/root/.kiro`), `kiro-aws-sso` (`/root/.aws`),
+and `kiro-data` (`/root/.local/share/kiro-cli`) volumes are mounted in
+both `bot` and `web` containers — `kiro-data` is the one that actually
+matters for persisting the login. On first-time setup, start the stack
+first (`docker compose up -d`) then log in against the persistent `bot`
+container with `exec`, **not** `run --rm`: a `run --rm` container's
+writable layer (and anything written to it, including
+`/root/.local/share/kiro-cli` if that path isn't mounted) is destroyed
+the moment the command exits, so credentials silently fail to persist.
 
 ```
-docker compose run --rm --entrypoint kiro-cli bot login --use-device-flow
+docker compose exec bot kiro-cli login --use-device-flow
 ```
 
 `--use-device-flow` is required — the container can't complete a browser
 loopback redirect, so this prints a code and URL to complete on another
-device instead. Complete the device/browser auth flow once; credentials
-persist on those volumes, so subsequent container restarts don't require
-re-login. Kiro is only invoked when Claude reports a usage-limit failure,
-so its quota is consumed far less frequently than Claude's.
+device instead. If the org uses AWS IAM Identity Center rather than
+Builder ID/social login, pass `--license pro --identity-provider <start
+URL> --region <region>` explicitly. Complete the device/browser auth flow
+once; credentials persist on the `kiro-data` volume, so subsequent
+container restarts don't require re-login. Kiro is only invoked when
+Claude reports a usage-limit failure, so its quota is consumed far less
+frequently than Claude's.
 
 ## State: SQLite schema
 

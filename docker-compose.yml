@@ -18,6 +18,7 @@ services:
       - claude-auth:/root/.claude
       - kiro-auth:/root/.kiro
       - kiro-aws-sso:/root/.aws
+      - kiro-data:/root/.local/share/kiro-cli
     depends_on:
       - mcp
     restart: unless-stopped
@@ -34,6 +35,7 @@ services:
       - claude-auth:/root/.claude
       - kiro-auth:/root/.kiro
       - kiro-aws-sso:/root/.aws
+      - kiro-data:/root/.local/share/kiro-cli
     depends_on:
       - mcp
     restart: unless-stopped
@@ -43,3 +45,4 @@ volumes:
   claude-auth:
   kiro-auth:
   kiro-aws-sso:
+  kiro-data:

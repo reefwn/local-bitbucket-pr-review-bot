@@ -20,7 +20,8 @@ Full design doc: `docs/superpowers/specs/2026-09-04-bitbucket-pr-review-bot-desi
 ## Architecture
 
 Three services via `docker-compose`, sharing one Docker volume for SQLite
-state and Docker volumes for persisted CLI auth (`claude-auth`, `kiro-auth`):
+state and Docker volumes for persisted CLI auth (`claude-auth`, `kiro-auth`,
+`kiro-aws-sso`, `kiro-data`):
 
 ```
                  ┌──────────────┐
@@ -34,7 +35,7 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `kiro-auth`):
                  └──────┬───────┘                              │
                         │                                      │
                  shared SQLite (reviewed_prs)          Bitbucket Cloud API
-                 shared claude-auth / kiro-auth volumes
+                 shared claude-auth / kiro-auth / kiro-aws-sso / kiro-data
 ```
 
 - `src/mcp_server/` — FastMCP server exposing a Bitbucket PR-only tool
@@ -109,9 +110,11 @@ docker compose up -d
 # one-time Claude login (persists on claude-auth volume)
 docker compose run --rm --entrypoint claude bot auth login
 
-# one-time Kiro login (persists on kiro-auth volume; device flow required —
-# the container can't complete a browser loopback redirect)
-docker compose run --rm --entrypoint kiro-cli bot login --use-device-flow
+# one-time Kiro login (persists on kiro-data volume at
+# /root/.local/share/kiro-cli — NOT ~/.kiro or ~/.aws despite those names;
+# must use exec against the running bot container, not run --rm, or the
+# credentials are destroyed when the throwaway container exits)
+docker compose exec bot kiro-cli login --use-device-flow
 ```
 
 ## Conventions

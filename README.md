@@ -20,15 +20,28 @@ by pasting a PR URL.
    browser redirect can't reach the container cleanly, use `claude setup-token`
    instead to generate a token non-interactively for headless use.
 4. One-time Kiro CLI login (used as the fallback agent when Claude hits its
-   usage limit):
+   usage limit). Start the stack first (`docker compose up -d`), then run
+   login against the persistent `bot` container — **use `exec`, not
+   `run --rm`**: `kiro-cli` stores its actual session/credentials under
+   `/root/.local/share/kiro-cli` (not `~/.kiro` or `~/.aws`, despite what
+   those directory names suggest), and a `run --rm` container's writable
+   layer — and anything written to it — is destroyed the moment the
+   command exits, so credentials never persist:
    ```
-   docker compose run --rm --entrypoint kiro-cli bot login --use-device-flow
+   docker compose exec bot kiro-cli login --use-device-flow
    ```
-   `--use-device-flow` is required since the container can't handle the
-   browser loopback redirect — this prints a code and URL to enter on
-   another device instead.
-   Follow the device/browser auth flow. Credentials persist on the
-   `kiro-auth` and `kiro-aws-sso` volumes, so this is only needed once.
+   If your organization uses AWS IAM Identity Center (not Builder ID /
+   Google / GitHub), you'll likely need to specify it explicitly — ask
+   your admin for the Start URL and region:
+   ```
+   docker compose exec bot kiro-cli login --license pro \
+     --identity-provider https://your-start-url.awsapps.com/start/ \
+     --region us-east-1 --use-device-flow
+   ```
+   Either form prints a code and URL — open the URL in a browser and
+   confirm the code before the command exits. Credentials persist on the
+   `kiro-data` volume (`/root/.local/share/kiro-cli`), so this is only
+   needed once.
 5. Start everything: `docker compose up -d`
 6. Open `http://localhost:8080` to trigger a review manually, or wait for
    the next poll cycle for newly-opened PRs to be reviewed automatically.
