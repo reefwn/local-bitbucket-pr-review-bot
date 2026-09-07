@@ -83,6 +83,7 @@ _FORM_HTML = """<!doctype html>
 
   form {
     display: flex;
+    align-items: center;
     gap: 10px;
   }
 
@@ -135,11 +136,17 @@ _FORM_HTML = """<!doctype html>
   }
 
   .status-line {
-    min-height: 20px;
     font-size: 13px;
     font-weight: 600;
     color: var(--text-dim);
+    margin: 0;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.15s ease;
+  }
+  .status-line:not(:empty) {
     margin: 14px 4px 0;
+    max-height: 40px;
   }
   .status-line.err { color: var(--err); }
   .status-line.ok { color: var(--ok); }
