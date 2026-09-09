@@ -33,51 +33,53 @@ def _format_comments(comments_data: dict) -> str:
     )
 
 
+async def _process_repo(config: Config, client: BitbucketClient, repo_slug: str, now: datetime) -> None:
+    try:
+        data = await client.get(
+            f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests",
+            params={"state": "OPEN", "pagelen": 50},
+        )
+        prs = filter_open(data.get("values", []))
+        prs = filter_recent(prs, now, config.poll_interval_minutes * 2)
+        prs = filter_unreviewed(prs, config.db_path, repo_slug)
+        for pr in prs:
+            try:
+                comments_data = await client.get(
+                    f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr['id']}/comments"
+                )
+                comments_text = _format_comments(comments_data)
+                await asyncio.to_thread(
+                    run_review,
+                    repo_slug,
+                    pr["id"],
+                    comments_text,
+                    config.mcp_config_path,
+                    config.kiro_agent_name,
+                )
+                try:
+                    outcome = await client.get_review_outcome(repo_slug, pr["id"])
+                except Exception:
+                    logger.exception("Failed to determine review outcome for %s PR #%s", repo_slug, pr["id"])
+                    outcome = "unknown"
+                mark_reviewed(
+                    config.db_path,
+                    repo_slug,
+                    pr["id"],
+                    now.isoformat(),
+                    pr["source"]["commit"]["hash"],
+                    outcome,
+                )
+            except Exception:
+                logger.exception("Review failed for %s PR #%s", repo_slug, pr["id"])
+    except Exception:
+        logger.exception("Failed to process repo %s", repo_slug)
+
+
 async def run_cycle(config: Config, client: BitbucketClient) -> None:
     """Run one poll cycle: find newly-opened PRs across configured projects and review them."""
     now = datetime.now(timezone.utc)
     repo_slugs = await resolve_repo_slugs(client, config.bitbucket_workspace, config.project_keys)
-    for repo_slug in repo_slugs:
-        try:
-            data = await client.get(
-                f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests",
-                params={"state": "OPEN", "pagelen": 50},
-            )
-            prs = filter_open(data.get("values", []))
-            prs = filter_recent(prs, now, config.poll_interval_minutes * 2)
-            prs = filter_unreviewed(prs, config.db_path, repo_slug)
-            for pr in prs:
-                try:
-                    comments_data = await client.get(
-                        f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr['id']}/comments"
-                    )
-                    comments_text = _format_comments(comments_data)
-                    await asyncio.to_thread(
-                        run_review,
-                        repo_slug,
-                        pr["id"],
-                        comments_text,
-                        config.mcp_config_path,
-                        config.kiro_agent_name,
-                    )
-                    try:
-                        outcome = await client.get_review_outcome(repo_slug, pr["id"])
-                    except Exception:
-                        logger.exception("Failed to determine review outcome for %s PR #%s", repo_slug, pr["id"])
-                        outcome = "unknown"
-                    mark_reviewed(
-                        config.db_path,
-                        repo_slug,
-                        pr["id"],
-                        now.isoformat(),
-                        pr["source"]["commit"]["hash"],
-                        outcome,
-                    )
-                except Exception:
-                    logger.exception("Review failed for %s PR #%s", repo_slug, pr["id"])
-        except Exception:
-            logger.exception("Failed to process repo %s", repo_slug)
-            continue
+    await asyncio.gather(*(_process_repo(config, client, repo_slug, now) for repo_slug in repo_slugs))
 
 
 async def main() -> None:
