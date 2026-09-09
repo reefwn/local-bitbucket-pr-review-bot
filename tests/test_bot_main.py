@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from src.bitbucket_client import BitbucketClient
 from src.bot.main import resolve_repo_slugs, run_cycle
 from src.config import Config
 from src.db import init_db, is_reviewed
@@ -27,11 +28,38 @@ def _config(tmp_path):
 @pytest.mark.asyncio
 async def test_resolve_repo_slugs():
     client = AsyncMock()
-    client.get.return_value = {"values": [{"slug": "repo-a"}, {"slug": "repo-b"}]}
+    client.get_all_pages.return_value = [{"slug": "repo-a"}, {"slug": "repo-b"}]
     slugs = await resolve_repo_slugs(client, "my-ws", ["PROJ1"])
     assert slugs == ["repo-a", "repo-b"]
-    params = client.get.call_args[1]["params"]
+    params = client.get_all_pages.call_args[1]["params"]
     assert params["q"] == 'project.key="PROJ1"'
+
+
+@pytest.mark.asyncio
+async def test_resolve_repo_slugs_across_multiple_pages():
+    """Regression test: a project with >100 repos was silently truncated to the
+    first page before get_all_pages existed (e.g. mkp-portal, on page 2 of a
+    147-repo project, never got polled)."""
+    client = AsyncMock()
+
+    async def fake_get(path, params=None):
+        if not path.startswith("http"):
+            return {
+                "values": [{"slug": "repo-a"}],
+                "next": "https://api.bitbucket.org/2.0/repositories/my-ws?page=2",
+            }
+        return {"values": [{"slug": "mkp-portal"}]}
+
+    client.get.side_effect = fake_get
+
+    async def fake_get_all_pages(path, params=None):
+        data = await fake_get(path, params)
+        return data.get("values", [])
+
+    client.get_all_pages.side_effect = fake_get_all_pages
+    client.get_all_pages = BitbucketClient.get_all_pages.__get__(client)
+    slugs = await resolve_repo_slugs(client, "my-ws", ["PROJ1"])
+    assert slugs == ["repo-a", "mkp-portal"]
 
 
 @pytest.mark.asyncio
@@ -54,6 +82,12 @@ async def test_run_cycle_reviews_new_open_pr_and_marks_reviewed(tmp_path):
         raise AssertionError(f"unexpected path {path}")
 
     client.get.side_effect = fake_get
+
+    async def fake_get_all_pages(path, params=None):
+        data = await fake_get(path, params)
+        return data.get("values", [])
+
+    client.get_all_pages.side_effect = fake_get_all_pages
 
     with patch("src.bot.main.run_review") as mock_run_review:
         mock_run_review.return_value = {"result": "ok"}
@@ -89,6 +123,12 @@ async def test_run_cycle_records_unknown_outcome_when_lookup_fails(tmp_path):
 
     client.get.side_effect = fake_get
 
+    async def fake_get_all_pages(path, params=None):
+        data = await fake_get(path, params)
+        return data.get("values", [])
+
+    client.get_all_pages.side_effect = fake_get_all_pages
+
     with patch("src.bot.main.run_review") as mock_run_review:
         mock_run_review.return_value = {"result": "ok"}
         await run_cycle(config, client)
@@ -122,6 +162,12 @@ async def test_run_cycle_skips_already_reviewed_pr(tmp_path):
         raise AssertionError(f"unexpected path {path}")
 
     client.get.side_effect = fake_get
+
+    async def fake_get_all_pages(path, params=None):
+        data = await fake_get(path, params)
+        return data.get("values", [])
+
+    client.get_all_pages.side_effect = fake_get_all_pages
 
     with patch("src.bot.main.run_review") as mock_run_review:
         await run_cycle(config, client)
@@ -163,6 +209,12 @@ async def test_run_cycle_reviews_pr_again_after_new_commit_pushed(tmp_path):
 
     client.get.side_effect = fake_get
 
+    async def fake_get_all_pages(path, params=None):
+        data = await fake_get(path, params)
+        return data.get("values", [])
+
+    client.get_all_pages.side_effect = fake_get_all_pages
+
     with patch("src.bot.main.run_review") as mock_run_review:
         mock_run_review.return_value = {"result": "ok"}
         await run_cycle(config, client)
@@ -196,6 +248,12 @@ async def test_run_cycle_continues_after_one_pr_fails(tmp_path):
         raise AssertionError(f"unexpected path {path}")
 
     client.get.side_effect = fake_get
+
+    async def fake_get_all_pages(path, params=None):
+        data = await fake_get(path, params)
+        return data.get("values", [])
+
+    client.get_all_pages.side_effect = fake_get_all_pages
 
     with patch("src.bot.main.run_review") as mock_run_review:
         mock_run_review.side_effect = [Exception("boom"), {"result": "ok"}]

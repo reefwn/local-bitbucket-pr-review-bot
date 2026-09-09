@@ -40,10 +40,15 @@ class BitbucketClient:
             raise BitbucketApiError(response)
 
     async def _get_raw(self, path: str, params: dict | None = None) -> httpx.Response:
-        """GET with retry on transient timeouts (GETs are idempotent, safe to retry)."""
+        """GET with retry on transient timeouts (GETs are idempotent, safe to retry).
+
+        `path` may be a full URL (e.g. a paginated response's `next` link, which
+        Bitbucket returns fully-qualified) instead of a base-relative path.
+        """
+        url = path if path.startswith("http") else f"{self.config.bitbucket_base_url}{path}"
         for attempt in range(RETRY_ATTEMPTS):
             try:
-                return await self._http.get(f"{self.config.bitbucket_base_url}{path}", params=params)
+                return await self._http.get(url, params=params)
             except httpx.TimeoutException:
                 if attempt == RETRY_ATTEMPTS - 1:
                     raise
@@ -54,6 +59,18 @@ class BitbucketClient:
         r = await self._get_raw(path, params=params)
         self._check_response(r)
         return r.json()
+
+    async def get_all_pages(self, path: str, params: dict | None = None) -> list[dict]:
+        """GET a paginated list endpoint and follow `next` links, returning all `values`."""
+        values: list[dict] = []
+        data = await self.get(path, params=params)
+        values.extend(data.get("values", []))
+        next_url = data.get("next")
+        while next_url:
+            data = await self.get(next_url)
+            values.extend(data.get("values", []))
+            next_url = data.get("next")
+        return values
 
     async def get_text(self, path: str, params: dict | None = None) -> str:
         r = await self._get_raw(path, params=params)
