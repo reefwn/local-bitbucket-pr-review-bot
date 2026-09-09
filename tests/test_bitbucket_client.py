@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from src.bitbucket_client import BitbucketApiError, BitbucketClient
@@ -28,6 +29,26 @@ async def test_get_success(mock_bitbucket_client):
     mock_bitbucket_client._http.get = AsyncMock(return_value=_make_response({"values": []}))
     result = await mock_bitbucket_client.get("/repositories/ws")
     assert result == {"values": []}
+
+
+@pytest.mark.asyncio
+async def test_get_retries_on_timeout_then_succeeds(mock_bitbucket_client):
+    mock_bitbucket_client._http.get = AsyncMock(
+        side_effect=[httpx.ReadTimeout("timed out"), _make_response({"values": []})]
+    )
+    with patch("asyncio.sleep", new=AsyncMock()):
+        result = await mock_bitbucket_client.get("/repositories/ws")
+    assert result == {"values": []}
+    assert mock_bitbucket_client._http.get.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_get_raises_after_exhausting_retries(mock_bitbucket_client):
+    mock_bitbucket_client._http.get = AsyncMock(side_effect=httpx.ReadTimeout("timed out"))
+    with patch("asyncio.sleep", new=AsyncMock()):
+        with pytest.raises(httpx.ReadTimeout):
+            await mock_bitbucket_client.get("/repositories/ws")
+    assert mock_bitbucket_client._http.get.call_count == 3
 
 
 @pytest.mark.asyncio

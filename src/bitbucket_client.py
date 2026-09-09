@@ -1,6 +1,11 @@
+import asyncio
+
 import httpx
 
 from src.config import Config
+
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 1.0
 
 
 class BitbucketApiError(Exception):
@@ -34,13 +39,24 @@ class BitbucketClient:
         if response.is_error:
             raise BitbucketApiError(response)
 
+    async def _get_raw(self, path: str, params: dict | None = None) -> httpx.Response:
+        """GET with retry on transient timeouts (GETs are idempotent, safe to retry)."""
+        for attempt in range(RETRY_ATTEMPTS):
+            try:
+                return await self._http.get(f"{self.config.bitbucket_base_url}{path}", params=params)
+            except httpx.TimeoutException:
+                if attempt == RETRY_ATTEMPTS - 1:
+                    raise
+                await asyncio.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+        raise AssertionError("unreachable")
+
     async def get(self, path: str, params: dict | None = None) -> dict:
-        r = await self._http.get(f"{self.config.bitbucket_base_url}{path}", params=params)
+        r = await self._get_raw(path, params=params)
         self._check_response(r)
         return r.json()
 
     async def get_text(self, path: str, params: dict | None = None) -> str:
-        r = await self._http.get(f"{self.config.bitbucket_base_url}{path}", params=params)
+        r = await self._get_raw(path, params=params)
         self._check_response(r)
         return r.text
 
