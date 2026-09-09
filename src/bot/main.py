@@ -16,10 +16,10 @@ async def resolve_repo_slugs(client: BitbucketClient, workspace: str, project_ke
     slugs: list[str] = []
     for key in project_keys:
         try:
-            data = await client.get(
+            repos = await client.get_all_pages(
                 f"/repositories/{workspace}", params={"q": f'project.key="{key}"', "pagelen": 100}
             )
-            slugs.extend(repo["slug"] for repo in data.get("values", []))
+            slugs.extend(repo["slug"] for repo in repos)
         except Exception:
             logger.exception("Failed to resolve repos for project key %s", key)
     return list(dict.fromkeys(slugs))

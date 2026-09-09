@@ -52,6 +52,28 @@ async def test_get_raises_after_exhausting_retries(mock_bitbucket_client):
 
 
 @pytest.mark.asyncio
+async def test_get_all_pages_follows_next_link(mock_bitbucket_client):
+    page1 = _make_response({"values": [{"slug": "repo-a"}], "next": "https://api.bitbucket.org/2.0/repositories/ws?page=2"})
+    page2 = _make_response({"values": [{"slug": "repo-b"}]})
+    mock_bitbucket_client._http.get = AsyncMock(side_effect=[page1, page2])
+    result = await mock_bitbucket_client.get_all_pages("/repositories/ws", params={"pagelen": 100})
+    assert result == [{"slug": "repo-a"}, {"slug": "repo-b"}]
+    assert mock_bitbucket_client._http.get.call_count == 2
+    first_call_url = mock_bitbucket_client._http.get.call_args_list[0].args[0]
+    second_call_url = mock_bitbucket_client._http.get.call_args_list[1].args[0]
+    assert first_call_url == "https://api.bitbucket.org/2.0/repositories/ws"
+    assert second_call_url == "https://api.bitbucket.org/2.0/repositories/ws?page=2"
+
+
+@pytest.mark.asyncio
+async def test_get_all_pages_single_page(mock_bitbucket_client):
+    mock_bitbucket_client._http.get = AsyncMock(return_value=_make_response({"values": [{"slug": "repo-a"}]}))
+    result = await mock_bitbucket_client.get_all_pages("/repositories/ws")
+    assert result == [{"slug": "repo-a"}]
+    assert mock_bitbucket_client._http.get.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_get_text_success(mock_bitbucket_client):
     mock_bitbucket_client._http.get = AsyncMock(return_value=_make_response(text="diff content"))
     result = await mock_bitbucket_client.get_text("/diff")
