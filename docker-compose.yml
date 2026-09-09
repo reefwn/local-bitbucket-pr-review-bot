@@ -4,8 +4,6 @@ services:
     container_name: bitbucket-pr-mcp
     env_file: .env
     command: ["-m", "src.mcp_server.server"]
-    ports:
-      - "7390:7390"
     restart: unless-stopped
 
   bot:
