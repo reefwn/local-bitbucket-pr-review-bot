@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from src.bitbucket_client import BitbucketClient
 from src.bot.poller import filter_open, filter_recent, filter_unreviewed
 from src.config import Config
-from src.db import init_db, mark_reviewed
+from src.db import get_provider_order, init_db, mark_reviewed
 from src.review_runner import run_review, write_kiro_mcp_config, write_mcp_config
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,7 @@ async def _process_repo(config: Config, client: BitbucketClient, repo_slug: str,
                     config.mcp_config_path,
                     config.kiro_agent_name,
                     config.mcp_url,
+                    get_provider_order(config.db_path),
                 )
                 try:
                     outcome = await client.get_review_outcome(repo_slug, pr["id"])

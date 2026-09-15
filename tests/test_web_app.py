@@ -36,6 +36,32 @@ def test_index_serves_form_with_url_input_and_submit(tmp_path):
     assert "<button" in resp.text
 
 
+def test_index_serves_provider_settings_modal(tmp_path):
+    app = create_app(_config(tmp_path), client=AsyncMock())
+    client = TestClient(app)
+    resp = client.get("/")
+    assert "provider-modal" in resp.text
+    assert 'aria-label="Review provider settings"' in resp.text
+
+
+def test_provider_config_returns_default_and_persists_update(tmp_path):
+    app = create_app(_config(tmp_path), client=AsyncMock())
+    client = TestClient(app)
+    assert client.get("/config/providers").json() == {"providers": ["claude", "codex", "kiro"]}
+
+    updated = client.put("/config/providers", json={"providers": ["codex", "kiro", "claude"]})
+    assert updated.status_code == 200
+    assert updated.json() == {"providers": ["codex", "kiro", "claude"]}
+    assert client.get("/config/providers").json() == {"providers": ["codex", "kiro", "claude"]}
+
+
+def test_provider_config_rejects_incomplete_order(tmp_path):
+    app = create_app(_config(tmp_path), client=AsyncMock())
+    client = TestClient(app)
+    resp = client.put("/config/providers", json={"providers": ["claude", "codex"]})
+    assert resp.status_code == 422
+
+
 def test_reviews_empty_before_any_review(tmp_path):
     app = create_app(_config(tmp_path), client=AsyncMock())
     client = TestClient(app)

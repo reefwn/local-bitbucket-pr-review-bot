@@ -65,6 +65,15 @@ Codex. If Codex also reports a quota failure, it uses headless Kiro CLI with the
 `pr-reviewer` agent config in `.kiro/agents/pr-reviewer.json`. Any other failure
 propagates immediately without falling back.
 
+## Provider priority
+
+Use **Review providers** in the web dashboard to set the review priority for
+new work. Drag a provider or use its arrow controls, then save. The selected
+order is stored in the persistent SQLite volume and applies to both scheduled
+batch reviews and reviews submitted from the dashboard. A provider is only
+skipped when it reports a usage or quota limit; other failures are returned
+immediately.
+
 ## Design
 
 See `docs/superpowers/specs/2026-09-04-bitbucket-pr-review-bot-design.md`.

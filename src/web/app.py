@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from src.bitbucket_client import BitbucketClient
 from src.config import Config
-from src.db import count_reviews, init_db, list_recent_reviews, mark_reviewed
+from src.db import count_reviews, get_provider_order, init_db, list_recent_reviews, mark_reviewed, set_provider_order
 from src.pr_url import parse_pr_url
 from src.review_runner import run_review, write_kiro_mcp_config, write_mcp_config
 
@@ -67,6 +67,13 @@ _FORM_HTML = """<!doctype html>
     letter-spacing: -0.01em;
     color: var(--text);
     margin: 0 0 6px;
+  }
+
+  .page-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
   }
 
   .sub {
@@ -136,6 +143,19 @@ _FORM_HTML = """<!doctype html>
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+
+  .settings-button {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    background: var(--card);
+    color: var(--text-dim);
+    box-shadow: var(--shadow);
+    padding: 0;
+  }
+  .settings-button:hover { color: var(--accent); filter: none; }
+  .settings-button svg { width: 19px; height: 19px; }
 
   .status-line {
     font-size: 13px;
@@ -296,12 +316,86 @@ _FORM_HTML = """<!doctype html>
     from { opacity: 0; transform: translateY(-4px); }
     to { opacity: 1; transform: translateY(0); }
   }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: blur(5px);
+  }
+  .modal-backdrop[hidden] { display: none; }
+  .modal {
+    width: min(100%, 460px);
+    background: var(--card);
+    border-radius: 22px;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
+    padding: 24px;
+  }
+  .modal-header { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; }
+  .modal h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+  .modal p { margin: 5px 0 0; color: var(--text-dim); font-size: 14px; }
+  .close-button {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    color: var(--text-dim);
+    background: var(--bg);
+    font-size: 21px;
+    line-height: 1;
+  }
+  .provider-list { list-style: none; margin: 22px 0; padding: 0; display: grid; gap: 8px; }
+  .provider-item {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 11px 10px;
+    background: var(--bg);
+    border: 1px solid transparent;
+    border-radius: 13px;
+  }
+  .provider-item.dragging { opacity: 0.48; }
+  .provider-item.drag-over { border-color: var(--accent); background: var(--accent-soft); }
+  .drag-handle { color: var(--text-faint); cursor: grab; font-size: 18px; line-height: 1; text-align: center; }
+  .provider-name { font-weight: 650; font-size: 14px; }
+  .provider-rank { color: var(--text-faint); font-size: 12px; margin-left: 7px; }
+  .reorder-actions { display: flex; gap: 4px; }
+  .reorder-actions button {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 16px;
+  }
+  .reorder-actions button:hover { color: var(--accent); filter: none; }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 9px; }
+  .modal-footer .cancel-button { background: var(--bg); color: var(--text-dim); }
+  .modal-footer .cancel-button:hover { color: var(--text); filter: none; }
 </style>
 </head>
 <body>
 <main>
-  <h1>PR Review</h1>
-  <p class="sub">Paste a Bitbucket pull request link and review it right away.</p>
+  <div class="page-heading">
+    <div>
+      <h1>PR Review</h1>
+      <p class="sub">Paste a Bitbucket pull request link and review it right away.</p>
+    </div>
+    <button type="button" class="settings-button" id="provider-settings" aria-label="Review provider settings" title="Review provider settings">
+      <svg class="lucide lucide-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+      </svg>
+    </button>
+  </div>
 
   <div class="card">
     <form id="review-form">
@@ -332,6 +426,23 @@ _FORM_HTML = """<!doctype html>
   </div>
 </main>
 
+<div class="modal-backdrop" id="provider-modal" hidden>
+  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="provider-modal-title">
+    <div class="modal-header">
+      <div>
+        <h2 id="provider-modal-title">Review providers</h2>
+        <p>New reviews try providers in this order. Move one to change its priority.</p>
+      </div>
+      <button type="button" class="close-button" id="close-provider-modal" aria-label="Close provider settings">&times;</button>
+    </div>
+    <ol class="provider-list" id="provider-list"></ol>
+    <div class="modal-footer">
+      <button type="button" class="cancel-button" id="cancel-provider-settings">Cancel</button>
+      <button type="button" id="save-provider-settings">Save order</button>
+    </div>
+  </section>
+</div>
+
 <script>
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
@@ -343,9 +454,109 @@ const pagerEl = document.getElementById("pager");
 const pagerLabelEl = document.getElementById("pager-label");
 const prevPageBtn = document.getElementById("prev-page");
 const nextPageBtn = document.getElementById("next-page");
+const providerSettingsBtn = document.getElementById("provider-settings");
+const providerModal = document.getElementById("provider-modal");
+const providerList = document.getElementById("provider-list");
+const closeProviderModalBtn = document.getElementById("close-provider-modal");
+const cancelProviderSettingsBtn = document.getElementById("cancel-provider-settings");
+const saveProviderSettingsBtn = document.getElementById("save-provider-settings");
 
 const PER_PAGE = 10;
 let currentPage = 1;
+let providerOrder = [];
+let draggedProvider = null;
+
+function providerLabel(provider) {
+  return provider === "kiro" ? "Kiro" : provider[0].toUpperCase() + provider.slice(1);
+}
+
+function moveProvider(provider, direction) {
+  const from = providerOrder.indexOf(provider);
+  const to = from + direction;
+  if (to < 0 || to >= providerOrder.length) return;
+  [providerOrder[from], providerOrder[to]] = [providerOrder[to], providerOrder[from]];
+  renderProviderList();
+}
+
+function renderProviderList() {
+  providerList.innerHTML = providerOrder.map((provider, index) => `
+    <li class="provider-item" draggable="true" data-provider="${provider}">
+      <span class="drag-handle" aria-hidden="true">&#8285;</span>
+      <span><span class="provider-name">${providerLabel(provider)}</span><span class="provider-rank">${index === 0 ? "Primary" : `Fallback ${index}`}</span></span>
+      <span class="reorder-actions">
+        <button type="button" data-move="up" data-provider="${provider}" aria-label="Move ${providerLabel(provider)} up" ${index === 0 ? "disabled" : ""}>&uarr;</button>
+        <button type="button" data-move="down" data-provider="${provider}" aria-label="Move ${providerLabel(provider)} down" ${index === providerOrder.length - 1 ? "disabled" : ""}>&darr;</button>
+      </span>
+    </li>`).join("");
+
+  providerList.querySelectorAll("[data-move]").forEach(button => {
+    button.addEventListener("click", () => moveProvider(button.dataset.provider, button.dataset.move === "up" ? -1 : 1));
+  });
+  providerList.querySelectorAll(".provider-item").forEach(item => {
+    item.addEventListener("dragstart", () => { draggedProvider = item.dataset.provider; item.classList.add("dragging"); });
+    item.addEventListener("dragend", () => { draggedProvider = null; item.classList.remove("dragging"); providerList.querySelectorAll(".drag-over").forEach(el => el.classList.remove("drag-over")); });
+    item.addEventListener("dragover", event => { event.preventDefault(); if (item.dataset.provider !== draggedProvider) item.classList.add("drag-over"); });
+    item.addEventListener("dragleave", () => item.classList.remove("drag-over"));
+    item.addEventListener("drop", event => {
+      event.preventDefault();
+      const target = item.dataset.provider;
+      const from = providerOrder.indexOf(draggedProvider);
+      const to = providerOrder.indexOf(target);
+      if (from !== -1 && to !== -1 && from !== to) {
+        providerOrder.splice(from, 1);
+        providerOrder.splice(to, 0, draggedProvider);
+        renderProviderList();
+      }
+    });
+  });
+}
+
+async function openProviderSettings() {
+  try {
+    const res = await fetch("/config/providers");
+    const data = await res.json();
+    if (!res.ok) throw new Error();
+    providerOrder = data.providers;
+    renderProviderList();
+    providerModal.hidden = false;
+    closeProviderModalBtn.focus();
+  } catch {
+    statusEl.textContent = "Could not load provider settings.";
+    statusEl.className = "status-line err";
+  }
+}
+
+function closeProviderSettings() {
+  providerModal.hidden = true;
+  providerSettingsBtn.focus();
+}
+
+providerSettingsBtn.addEventListener("click", openProviderSettings);
+closeProviderModalBtn.addEventListener("click", closeProviderSettings);
+cancelProviderSettingsBtn.addEventListener("click", closeProviderSettings);
+providerModal.addEventListener("click", event => { if (event.target === providerModal) closeProviderSettings(); });
+document.addEventListener("keydown", event => { if (event.key === "Escape" && !providerModal.hidden) closeProviderSettings(); });
+saveProviderSettingsBtn.addEventListener("click", async () => {
+  saveProviderSettingsBtn.disabled = true;
+  try {
+    const res = await fetch("/config/providers", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ providers: providerOrder }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not save provider settings.");
+    providerOrder = data.providers;
+    closeProviderSettings();
+    statusEl.textContent = `Provider order saved: ${providerOrder.map(providerLabel).join(", ")}.`;
+    statusEl.className = "status-line ok";
+  } catch (error) {
+    statusEl.textContent = error.message || "Could not save provider settings.";
+    statusEl.className = "status-line err";
+  } finally {
+    saveProviderSettingsBtn.disabled = false;
+  }
+});
 
 function repoAndPr(repo_slug, pr_id) {
   return `${repo_slug} <span class="pr-id">#${pr_id}</span>`;
@@ -483,6 +694,10 @@ class ReviewRequest(BaseModel):
     pr_url: str
 
 
+class ProviderOrderRequest(BaseModel):
+    providers: list[str]
+
+
 def _format_comments(comments_data: dict) -> str:
     return "\n".join(
         f"[{c['user']['display_name']}] {c['content']['raw']}"
@@ -506,6 +721,18 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
     @app.get("/health")
     async def health() -> dict:
         return {"status": "ok"}
+
+    @app.get("/config/providers")
+    async def provider_config() -> dict:
+        return {"providers": get_provider_order(config.db_path)}
+
+    @app.put("/config/providers")
+    async def update_provider_config(req: ProviderOrderRequest) -> dict:
+        try:
+            set_provider_order(config.db_path, req.providers)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        return {"providers": req.providers}
 
     @app.get("/reviews")
     async def reviews(page: int = 1, per_page: int = 10) -> dict:
@@ -548,6 +775,7 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
                 config.mcp_config_path,
                 config.kiro_agent_name,
                 config.mcp_url,
+                get_provider_order(config.db_path),
             )
             try:
                 outcome = await client.get_review_outcome(repo_slug, pr_id)
