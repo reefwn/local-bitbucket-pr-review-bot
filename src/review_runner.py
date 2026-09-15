@@ -25,6 +25,7 @@ _USAGE_LIMIT_PATTERNS = (
 )
 
 KIRO_AGENT_NAME = "pr-reviewer"
+DEFAULT_MCP_URL = "http://mcp:7390/mcp"
 
 
 def build_prompt(repo_slug: str, pr_id: int, existing_comments: str) -> str:
@@ -157,6 +158,50 @@ def _run_kiro(prompt: str, agent_name: str = KIRO_AGENT_NAME) -> subprocess.Comp
     )
 
 
+def _run_codex(prompt: str, mcp_url: str) -> subprocess.CompletedProcess:
+    """Run Codex non-interactively with the Bitbucket MCP server for this review.
+
+    Codex reads MCP settings from TOML. A command-line config override keeps the
+    review server scoped to this invocation and, importantly, does not overwrite
+    the user's persisted ``~/.codex/config.toml`` alongside their device-login
+    credentials. MCP calls need the bypass flag in Codex's non-interactive mode;
+    the bot is already isolated in its Docker container and the prompt limits the
+    agent to the Bitbucket MCP tools.
+    """
+    mcp_config = f"mcp_servers.bitbucket-pr.url={json.dumps(mcp_url)}"
+    return subprocess.run(
+        [
+            "codex", "exec",
+            "--json",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--config", mcp_config,
+            prompt,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+
+
+def _codex_result(stdout: str) -> str:
+    """Extract Codex's final agent message from its JSONL exec output.
+
+    ``codex exec --json`` emits progress events as JSON Lines and the final
+    response as the final completed ``agent_message`` item. Retain raw output as
+    a fallback so a compatible future CLI format remains visible to callers.
+    """
+    for line in reversed(stdout.splitlines()):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        item = event.get("item", {})
+        if event.get("type") == "item.completed" and item.get("type") == "agent_message":
+            return item.get("text", "")
+    return stdout
+
+
 def _redact_prompt_arg(args: list[str]) -> list[str]:
     """Replace the (potentially huge) prompt argument with a placeholder for log/error output.
 
@@ -173,14 +218,16 @@ def run_review(
     existing_comments: str,
     mcp_config_path: str,
     kiro_agent_name: str = KIRO_AGENT_NAME,
+    mcp_url: str = DEFAULT_MCP_URL,
 ) -> dict:
-    """Run headless Claude to review and comment on a PR, falling back to Kiro CLI
-    if Claude reports a usage-limit failure. Returns the parsed JSON result
-    (or, when the Kiro fallback ran, a dict wrapping its plain-text output).
+    """Run headless Claude to review a PR, then Codex and Kiro on quota exhaustion.
+
+    The primary result retains Claude's JSON response. Codex and Kiro return a
+    normalized text result labelled with the agent that produced it.
 
     Raises subprocess.CalledProcessError if the invocation fails for a reason
-    other than an exhausted Claude usage quota, or if the Kiro fallback itself
-    fails.
+    other than an exhausted agent usage quota, or if the final Kiro fallback
+    itself fails.
     """
     prompt = build_prompt(repo_slug, pr_id, existing_comments)
     result = _run_claude(prompt, mcp_config_path)
@@ -199,9 +246,28 @@ def run_review(
             result.returncode, _redact_prompt_arg(result.args), output=result.stdout, stderr=result.stderr
         )
 
-    logger.warning(
-        "Claude hit a usage limit reviewing %s PR #%s; falling back to Kiro CLI", repo_slug, pr_id
+    logger.warning("Claude hit a usage limit reviewing %s PR #%s; falling back to Codex", repo_slug, pr_id)
+    codex_result = _run_codex(prompt, mcp_url)
+    codex_usage_limit_hit = _is_usage_limit_failure(
+        codex_result.returncode, codex_result.stdout, codex_result.stderr
     )
+    if codex_result.returncode == 0 and not codex_usage_limit_hit:
+        return {"result": _codex_result(codex_result.stdout), "agent": "codex"}
+
+    if not codex_usage_limit_hit:
+        logger.error(
+            "Codex fallback failed reviewing %s PR #%s (exit %s): %s",
+            repo_slug, pr_id, codex_result.returncode,
+            codex_result.stderr.strip() or codex_result.stdout.strip(),
+        )
+        raise subprocess.CalledProcessError(
+            codex_result.returncode,
+            _redact_prompt_arg(codex_result.args),
+            output=codex_result.stdout,
+            stderr=codex_result.stderr,
+        )
+
+    logger.warning("Codex hit a usage limit reviewing %s PR #%s; falling back to Kiro CLI", repo_slug, pr_id)
     kiro_result = _run_kiro(prompt, kiro_agent_name)
     if kiro_result.returncode != 0:
         logger.error(
