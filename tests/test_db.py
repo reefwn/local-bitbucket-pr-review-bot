@@ -1,4 +1,14 @@
-from src.db import count_reviews, init_db, is_reviewed, list_recent_reviews, mark_reviewed
+import pytest
+
+from src.db import (
+    count_reviews,
+    get_provider_order,
+    init_db,
+    is_reviewed,
+    list_recent_reviews,
+    mark_reviewed,
+    set_provider_order,
+)
 
 
 def test_is_reviewed_false_before_marking(tmp_path):
@@ -176,3 +186,23 @@ def test_init_db_migrates_existing_db_missing_outcome_column(tmp_path):
 
     reviews = list_recent_reviews(db_path)
     assert reviews[0]["outcome"] == "unknown"
+
+
+def test_provider_order_defaults_to_claude_codex_kiro(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    init_db(db_path)
+    assert get_provider_order(db_path) == ["claude", "codex", "kiro"]
+
+
+def test_provider_order_persists_in_requested_order(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    set_provider_order(db_path, ["codex", "kiro", "claude"])
+    assert get_provider_order(db_path) == ["codex", "kiro", "claude"]
+
+
+def test_provider_order_rejects_missing_or_unknown_providers(tmp_path):
+    db_path = str(tmp_path / "reviewed.db")
+    with pytest.raises(ValueError):
+        set_provider_order(db_path, ["claude", "codex"])
+    with pytest.raises(ValueError):
+        set_provider_order(db_path, ["claude", "codex", "other"])

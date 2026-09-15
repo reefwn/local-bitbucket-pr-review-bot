@@ -100,6 +100,11 @@ This keeps the primary review path on Claude (per the original design), uses
 Codex when Claude genuinely cannot run, and only spends Kiro's quota when both
 earlier reviewers are exhausted.
 
+The web dashboard's **Review providers** modal persists a full provider order
+in the shared SQLite database. Each new manual or scheduled review reads that
+order, so the first entry is primary and later entries are usage-limit-only
+fallbacks.
+
 ## Dev commands
 
 ```bash

@@ -6,7 +6,7 @@ import pytest
 from src.bitbucket_client import BitbucketClient
 from src.bot.main import resolve_repo_slugs, run_cycle
 from src.config import Config
-from src.db import init_db, is_reviewed
+from src.db import init_db, is_reviewed, set_provider_order
 
 SOURCE_HASH_A = {"source": {"commit": {"hash": "hash-a"}}}
 SOURCE_HASH_B = {"source": {"commit": {"hash": "hash-b"}}}
@@ -94,12 +94,47 @@ async def test_run_cycle_reviews_new_open_pr_and_marks_reviewed(tmp_path):
         await run_cycle(config, client)
 
     mock_run_review.assert_called_once()
+    assert mock_run_review.call_args[0][-1] == ["claude", "codex", "kiro"]
     assert is_reviewed(config.db_path, "repo-a", 1, "hash-a") is True
 
     from src.db import list_recent_reviews
 
     reviews = list_recent_reviews(config.db_path)
     assert reviews[0]["outcome"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_uses_persisted_provider_order(tmp_path):
+    config = _config(tmp_path)
+    init_db(config.db_path)
+    set_provider_order(config.db_path, ["kiro", "codex", "claude"])
+    now = datetime.now(timezone.utc)
+    recent_created = now.isoformat().replace("+00:00", "Z")
+    client = AsyncMock()
+    client.get_review_outcome.return_value = "approved"
+
+    async def fake_get(path, params=None):
+        if path == f"/repositories/{config.bitbucket_workspace}":
+            return {"values": [{"slug": "repo-a"}]}
+        if path.endswith("/pullrequests"):
+            return {"values": [{"id": 1, "state": "OPEN", "created_on": recent_created, **SOURCE_HASH_A}]}
+        if path.endswith("/comments"):
+            return {"values": []}
+        raise AssertionError(f"unexpected path {path}")
+
+    client.get.side_effect = fake_get
+
+    async def fake_get_all_pages(path, params=None):
+        data = await fake_get(path, params)
+        return data["values"]
+
+    client.get_all_pages.side_effect = fake_get_all_pages
+
+    with patch("src.bot.main.run_review") as mock_run_review:
+        mock_run_review.return_value = {"result": "ok"}
+        await run_cycle(config, client)
+
+    assert mock_run_review.call_args[0][-1] == ["kiro", "codex", "claude"]
 
 
 @pytest.mark.asyncio

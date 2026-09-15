@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+DEFAULT_PROVIDER_ORDER = ("claude", "codex", "kiro")
+
 
 def init_db(db_path: str) -> None:
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -26,6 +28,46 @@ def init_db(db_path: str) -> None:
             conn.execute("ALTER TABLE reviewed_prs ADD COLUMN outcome TEXT NOT NULL DEFAULT 'unknown'")
         except sqlite3.OperationalError:
             pass
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_provider_order(db_path: str) -> list[str]:
+    """Return the persisted reviewer priority, or the safe default for new installs."""
+    init_db(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT value FROM app_settings WHERE key = 'provider_order'").fetchone()
+        if not row:
+            return list(DEFAULT_PROVIDER_ORDER)
+        providers = [provider.strip() for provider in row[0].split(",") if provider.strip()]
+        if set(providers) != set(DEFAULT_PROVIDER_ORDER) or len(providers) != len(DEFAULT_PROVIDER_ORDER):
+            return list(DEFAULT_PROVIDER_ORDER)
+        return providers
+    finally:
+        conn.close()
+
+
+def set_provider_order(db_path: str, providers: list[str]) -> None:
+    """Persist a complete, ordered list of the supported review providers."""
+    if set(providers) != set(DEFAULT_PROVIDER_ORDER) or len(providers) != len(DEFAULT_PROVIDER_ORDER):
+        raise ValueError("Provider order must contain Claude, Codex, and Kiro exactly once.")
+    init_db(db_path)
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('provider_order', ?)",
+            (",".join(providers),),
+        )
         conn.commit()
     finally:
         conn.close()

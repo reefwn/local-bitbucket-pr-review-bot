@@ -146,6 +146,28 @@ def test_run_review_falls_back_to_codex_on_claude_usage_limit(tmp_path):
     assert config_override == 'mcp_servers.bitbucket-pr.url="http://mcp:7390/mcp"'
 
 
+def test_run_review_honors_configured_provider_order(tmp_path):
+    config_path = str(tmp_path / "mcp-config.json")
+    codex_result = _claude_result(
+        stdout='{"type":"item.completed","item":{"type":"agent_message","text":"Reviewed"}}',
+        returncode=0,
+    )
+    with patch("subprocess.run", return_value=codex_result) as mock_run:
+        result = run_review("my-repo", 42, "", config_path, provider_order=["codex", "claude", "kiro"])
+    assert result == {"result": "Reviewed", "agent": "codex"}
+    assert mock_run.call_args[0][0][:2] == ["codex", "exec"]
+
+
+def test_run_review_uses_configured_second_provider_after_usage_limit(tmp_path):
+    config_path = str(tmp_path / "mcp-config.json")
+    codex_result = _claude_result(stdout="", stderr="usage limit exceeded", returncode=1)
+    kiro_result = _claude_result(stdout="Reviewed by Kiro", returncode=0)
+    with patch("subprocess.run", side_effect=[codex_result, kiro_result]) as mock_run:
+        result = run_review("my-repo", 42, "", config_path, provider_order=["codex", "kiro", "claude"])
+    assert result == {"result": "Reviewed by Kiro", "agent": "kiro"}
+    assert mock_run.call_args_list[1][0][0][:2] == ["kiro-cli", "chat"]
+
+
 def test_run_review_falls_back_to_kiro_after_codex_usage_limit(tmp_path):
     """Kiro is used only when Claude and Codex both exhaust their quotas."""
     config_path = str(tmp_path / "mcp-config.json")

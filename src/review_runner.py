@@ -26,6 +26,7 @@ _USAGE_LIMIT_PATTERNS = (
 
 KIRO_AGENT_NAME = "pr-reviewer"
 DEFAULT_MCP_URL = "http://mcp:7390/mcp"
+DEFAULT_PROVIDER_ORDER = ("claude", "codex", "kiro")
 
 
 def build_prompt(repo_slug: str, pr_id: int, existing_comments: str) -> str:
@@ -212,6 +213,31 @@ def _redact_prompt_arg(args: list[str]) -> list[str]:
     return [f"<prompt, {len(arg)} chars>" if len(arg) > 200 else arg for arg in args]
 
 
+def _validated_provider_order(provider_order: list[str] | tuple[str, ...]) -> tuple[str, ...]:
+    providers = tuple(provider_order)
+    if set(providers) != set(DEFAULT_PROVIDER_ORDER) or len(providers) != len(DEFAULT_PROVIDER_ORDER):
+        raise ValueError("Provider order must contain Claude, Codex, and Kiro exactly once.")
+    return providers
+
+
+def _run_provider(
+    provider: str, prompt: str, mcp_config_path: str, kiro_agent_name: str, mcp_url: str
+) -> subprocess.CompletedProcess:
+    if provider == "claude":
+        return _run_claude(prompt, mcp_config_path)
+    if provider == "codex":
+        return _run_codex(prompt, mcp_url)
+    return _run_kiro(prompt, kiro_agent_name)
+
+
+def _provider_result(provider: str, stdout: str) -> dict:
+    if provider == "claude":
+        return json.loads(stdout)
+    if provider == "codex":
+        return {"result": _codex_result(stdout), "agent": "codex"}
+    return {"result": stdout, "agent": "kiro"}
+
+
 def run_review(
     repo_slug: str,
     pr_id: int,
@@ -219,8 +245,9 @@ def run_review(
     mcp_config_path: str,
     kiro_agent_name: str = KIRO_AGENT_NAME,
     mcp_url: str = DEFAULT_MCP_URL,
+    provider_order: list[str] | tuple[str, ...] = DEFAULT_PROVIDER_ORDER,
 ) -> dict:
-    """Run headless Claude to review a PR, then Codex and Kiro on quota exhaustion.
+    """Run review providers in priority order, only falling back on quota exhaustion.
 
     The primary result retains Claude's JSON response. Codex and Kiro return a
     normalized text result labelled with the agent that produced it.
@@ -230,54 +257,42 @@ def run_review(
     itself fails.
     """
     prompt = build_prompt(repo_slug, pr_id, existing_comments)
-    result = _run_claude(prompt, mcp_config_path)
-    usage_limit_hit = _is_usage_limit_failure(result.returncode, result.stdout, result.stderr)
+    providers = _validated_provider_order(provider_order)
+    for index, provider in enumerate(providers):
+        result = _run_provider(provider, prompt, mcp_config_path, kiro_agent_name, mcp_url)
+        usage_limit_hit = _is_usage_limit_failure(result.returncode, result.stdout, result.stderr)
+        if result.returncode == 0 and not usage_limit_hit:
+            return _provider_result(provider, result.stdout)
 
-    if result.returncode == 0 and not usage_limit_hit:
-        return json.loads(result.stdout)
+        if not usage_limit_hit:
+            logger.error(
+                "%s failed reviewing %s PR #%s (exit %s): %s",
+                provider.title(), repo_slug, pr_id, result.returncode,
+                result.stderr.strip() or result.stdout.strip(),
+            )
+            raise subprocess.CalledProcessError(
+                result.returncode,
+                _redact_prompt_arg(result.args),
+                output=result.stdout,
+                stderr=result.stderr,
+            )
 
-    if not usage_limit_hit:
-        # Generic failure — surface it the same way subprocess.run(check=True) would.
+        if index < len(providers) - 1:
+            logger.warning(
+                "%s hit a usage limit reviewing %s PR #%s; falling back to %s",
+                provider.title(), repo_slug, pr_id, providers[index + 1].title(),
+            )
+            continue
+
         logger.error(
-            "Claude failed reviewing %s PR #%s (exit %s): %s",
-            repo_slug, pr_id, result.returncode, result.stderr.strip() or result.stdout.strip(),
+            "%s exhausted its usage limit reviewing %s PR #%s and no fallback remains",
+            provider.title(), repo_slug, pr_id,
         )
         raise subprocess.CalledProcessError(
-            result.returncode, _redact_prompt_arg(result.args), output=result.stdout, stderr=result.stderr
+            result.returncode or 1,
+            _redact_prompt_arg(result.args),
+            output=result.stdout,
+            stderr=result.stderr,
         )
 
-    logger.warning("Claude hit a usage limit reviewing %s PR #%s; falling back to Codex", repo_slug, pr_id)
-    codex_result = _run_codex(prompt, mcp_url)
-    codex_usage_limit_hit = _is_usage_limit_failure(
-        codex_result.returncode, codex_result.stdout, codex_result.stderr
-    )
-    if codex_result.returncode == 0 and not codex_usage_limit_hit:
-        return {"result": _codex_result(codex_result.stdout), "agent": "codex"}
-
-    if not codex_usage_limit_hit:
-        logger.error(
-            "Codex fallback failed reviewing %s PR #%s (exit %s): %s",
-            repo_slug, pr_id, codex_result.returncode,
-            codex_result.stderr.strip() or codex_result.stdout.strip(),
-        )
-        raise subprocess.CalledProcessError(
-            codex_result.returncode,
-            _redact_prompt_arg(codex_result.args),
-            output=codex_result.stdout,
-            stderr=codex_result.stderr,
-        )
-
-    logger.warning("Codex hit a usage limit reviewing %s PR #%s; falling back to Kiro CLI", repo_slug, pr_id)
-    kiro_result = _run_kiro(prompt, kiro_agent_name)
-    if kiro_result.returncode != 0:
-        logger.error(
-            "Kiro fallback failed reviewing %s PR #%s (exit %s): %s",
-            repo_slug, pr_id, kiro_result.returncode, kiro_result.stderr.strip() or kiro_result.stdout.strip(),
-        )
-        raise subprocess.CalledProcessError(
-            kiro_result.returncode,
-            _redact_prompt_arg(kiro_result.args),
-            output=kiro_result.stdout,
-            stderr=kiro_result.stderr,
-        )
-    return {"result": kiro_result.stdout, "agent": "kiro"}
+    raise AssertionError("Validated provider order cannot be empty")
