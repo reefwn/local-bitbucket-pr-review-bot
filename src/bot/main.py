@@ -55,6 +55,7 @@ async def _process_repo(config: Config, client: BitbucketClient, repo_slug: str,
                     comments_text,
                     config.mcp_config_path,
                     config.kiro_agent_name,
+                    config.mcp_url,
                 )
                 try:
                     outcome = await client.get_review_outcome(repo_slug, pr["id"])

@@ -19,7 +19,16 @@ by pasting a PR URL.
    on the `claude-auth` volume, so this is only needed once. If the OAuth
    browser redirect can't reach the container cleanly, use `claude setup-token`
    instead to generate a token non-interactively for headless use.
-4. One-time Kiro CLI login (used as the fallback agent when Claude hits its
+4. One-time Codex login (used when Claude hits its usage limit):
+   ```
+   docker compose up -d
+   docker compose exec bot codex login --device-auth
+   ```
+   The command displays a URL and device code. Complete that flow in a browser.
+   Credentials persist in the `codex-auth` volume (`/root/.codex`), so this is
+   only needed once. Codex is invoked with the same Bitbucket MCP server as the
+   other reviewers.
+5. One-time Kiro CLI login (used as the final fallback when Claude and Codex hit their
    usage limit). Start the stack first (`docker compose up -d`), then run
    login against the persistent `bot` container — **use `exec`, not
    `run --rm`**: `kiro-cli` stores its actual session/credentials under
@@ -42,19 +51,19 @@ by pasting a PR URL.
    confirm the code before the command exits. Credentials persist on the
    `kiro-data` volume (`/root/.local/share/kiro-cli`), so this is only
    needed once.
-5. Start everything: `docker compose up -d`
-6. Open `http://localhost:8080` to trigger a review manually, or wait for
+6. Start everything: `docker compose up -d`
+7. Open `http://localhost:8080` to trigger a review manually, or wait for
    the next poll cycle for newly-opened PRs to be reviewed automatically.
 
-## Claude/Kiro fallback
+## Claude/Codex/Kiro fallback
 
 The review runner (`src/review_runner.py`) always tries headless Claude
 first. If Claude reports a usage-limit failure (exhausted quota, rate
 limit, or session limit — whether via a non-zero exit or an exit-0 result
-that mentions the limit), the runner automatically retries the same PR
-review with headless Kiro CLI using the `pr-reviewer` agent config in
-`.kiro/agents/pr-reviewer.json`. Any other Claude failure propagates
-immediately without falling back. See `CLAUDE.md` / `KIRO.md` for details.
+that mentions the limit), the runner retries the same PR with device-authenticated
+Codex. If Codex also reports a quota failure, it uses headless Kiro CLI with the
+`pr-reviewer` agent config in `.kiro/agents/pr-reviewer.json`. Any other failure
+propagates immediately without falling back.
 
 ## Design
 

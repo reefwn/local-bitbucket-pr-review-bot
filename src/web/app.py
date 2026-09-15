@@ -541,7 +541,13 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
             )
             comments_text = _format_comments(comments_data)
             result = await asyncio.to_thread(
-                run_review, repo_slug, pr_id, comments_text, config.mcp_config_path, config.kiro_agent_name
+                run_review,
+                repo_slug,
+                pr_id,
+                comments_text,
+                config.mcp_config_path,
+                config.kiro_agent_name,
+                config.mcp_url,
             )
             try:
                 outcome = await client.get_review_outcome(repo_slug, pr_id)
