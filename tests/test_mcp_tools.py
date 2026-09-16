@@ -112,6 +112,9 @@ async def test_bitbucket_approve_pr():
     with patch("src.mcp_server.tools.client", mc), patch("src.mcp_server.tools.config", cfg):
         result = await bitbucket_approve_pr("repo", 1)
     assert "approved" in result
+    mc.delete.assert_awaited_once_with(
+        "/repositories/test-ws/repo/pullrequests/1/request-changes"
+    )
     mc.post.assert_called_once_with("/repositories/test-ws/repo/pullrequests/1/approve", json={})
 
 

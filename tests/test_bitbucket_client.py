@@ -88,6 +88,15 @@ async def test_post_success(mock_bitbucket_client):
 
 
 @pytest.mark.asyncio
+async def test_delete_success(mock_bitbucket_client):
+    mock_bitbucket_client._http.delete = AsyncMock(return_value=_make_response(status_code=204))
+    await mock_bitbucket_client.delete("/request-changes")
+    mock_bitbucket_client._http.delete.assert_called_once_with(
+        "https://api.bitbucket.org/2.0/request-changes"
+    )
+
+
+@pytest.mark.asyncio
 async def test_api_error_includes_body(mock_bitbucket_client):
     resp = _make_response(status_code=400, text='{"error": {"message": "bad request"}}')
     mock_bitbucket_client._http.post = AsyncMock(return_value=resp)

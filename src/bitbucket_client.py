@@ -82,6 +82,11 @@ class BitbucketClient:
         self._check_response(r)
         return r.json()
 
+    async def delete(self, path: str) -> None:
+        """DELETE a resource, including endpoints that return no response body."""
+        r = await self._http.delete(f"{self.config.bitbucket_base_url}{path}")
+        self._check_response(r)
+
     async def close(self) -> None:
         await self._http.aclose()
 
