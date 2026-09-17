@@ -1,6 +1,6 @@
 from mcp.server.fastmcp import FastMCP
 
-from src.bitbucket_client import BitbucketClient
+from src.bitbucket_client import BitbucketApiError, BitbucketClient
 from src.config import Config
 
 config = Config()
@@ -89,8 +89,14 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool()
     async def bitbucket_approve_pr(repo_slug: str, pr_id: int) -> str:
-        """Approve a pull request as the configured Bitbucket account."""
+        """Approve a pull request, replacing this account's prior change request if present."""
         ws = config.bitbucket_workspace
+        try:
+            await client.delete(f"/repositories/{ws}/{repo_slug}/pullrequests/{pr_id}/request-changes")
+        except BitbucketApiError as error:
+            # Bitbucket returns 404 when this account has no change request to remove.
+            if error.status_code != 404:
+                raise
         await client.post(f"/repositories/{ws}/{repo_slug}/pullrequests/{pr_id}/approve", json={})
         return f"PR #{pr_id} approved."
 
