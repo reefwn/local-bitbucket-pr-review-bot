@@ -36,6 +36,22 @@ async def test_resolve_repo_slugs():
 
 
 @pytest.mark.asyncio
+async def test_resolve_repo_slugs_excludes_configured_repositories():
+    client = AsyncMock()
+    client.get_all_pages.return_value = [
+        {"slug": "review-this"},
+        {"slug": "legacy-service"},
+        {"slug": "experimental-api"},
+    ]
+
+    slugs = await resolve_repo_slugs(
+        client, "my-ws", ["PROJ1"], excluded_repo_slugs=["legacy-service", "experimental-api"]
+    )
+
+    assert slugs == ["review-this"]
+
+
+@pytest.mark.asyncio
 async def test_resolve_repo_slugs_across_multiple_pages():
     """Regression test: a project with >100 repos was silently truncated to the
     first page before get_all_pages existed (e.g. mkp-portal, on page 2 of a

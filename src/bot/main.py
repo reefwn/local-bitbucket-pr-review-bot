@@ -11,15 +11,21 @@ from src.review_runner import run_review, write_kiro_mcp_config, write_mcp_confi
 logger = logging.getLogger(__name__)
 
 
-async def resolve_repo_slugs(client: BitbucketClient, workspace: str, project_keys: list[str]) -> list[str]:
-    """Resolve Bitbucket Project keys into member repo slugs."""
+async def resolve_repo_slugs(
+    client: BitbucketClient,
+    workspace: str,
+    project_keys: list[str],
+    excluded_repo_slugs: list[str] | None = None,
+) -> list[str]:
+    """Resolve Bitbucket Project keys into member repo slugs, excluding opted-out repositories."""
+    excluded = set(excluded_repo_slugs or [])
     slugs: list[str] = []
     for key in project_keys:
         try:
             repos = await client.get_all_pages(
                 f"/repositories/{workspace}", params={"q": f'project.key="{key}"', "pagelen": 100}
             )
-            slugs.extend(repo["slug"] for repo in repos)
+            slugs.extend(repo["slug"] for repo in repos if repo["slug"] not in excluded)
         except Exception:
             logger.exception("Failed to resolve repos for project key %s", key)
     return list(dict.fromkeys(slugs))
@@ -80,7 +86,9 @@ async def _process_repo(config: Config, client: BitbucketClient, repo_slug: str,
 async def run_cycle(config: Config, client: BitbucketClient) -> None:
     """Run one poll cycle: find newly-opened PRs across configured projects and review them."""
     now = datetime.now(timezone.utc)
-    repo_slugs = await resolve_repo_slugs(client, config.bitbucket_workspace, config.project_keys)
+    repo_slugs = await resolve_repo_slugs(
+        client, config.bitbucket_workspace, config.project_keys, config.excluded_repo_slugs
+    )
     await asyncio.gather(*(_process_repo(config, client, repo_slug, now) for repo_slug in repo_slugs))
 
 
