@@ -9,7 +9,7 @@ from src.bitbucket_client import BitbucketClient
 from src.config import Config
 from src.db import count_reviews, get_provider_order, init_db, list_recent_reviews, mark_reviewed, set_provider_order
 from src.pr_url import parse_pr_url
-from src.review_runner import run_review, write_kiro_mcp_config, write_mcp_config
+from src.review_runner import run_review, write_cursor_mcp_config, write_kiro_mcp_config, write_mcp_config
 
 _FORM_HTML = """<!doctype html>
 <html lang="en">
@@ -711,6 +711,7 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
     init_db(config.db_path)
     write_mcp_config(config.mcp_config_path, config.mcp_url)
     write_kiro_mcp_config(config.kiro_mcp_config_path, config.mcp_url)
+    write_cursor_mcp_config(config.cursor_mcp_config_path, config.mcp_url)
     client = client or BitbucketClient(config)
     app = FastAPI()
 
@@ -776,6 +777,8 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
                 config.kiro_agent_name,
                 config.mcp_url,
                 get_provider_order(config.db_path),
+                config.cursor_workspace,
+                config.cursor_model or None,
             )
             try:
                 outcome = await client.get_review_outcome(repo_slug, pr_id)

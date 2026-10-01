@@ -26,6 +26,9 @@ def test_config_defaults():
     assert config.mcp_config_path == "/app/mcp-config.json"
     assert config.kiro_mcp_config_path == "/app/.kiro/agents/pr-reviewer.json"
     assert config.kiro_agent_name == "pr-reviewer"
+    assert config.cursor_mcp_config_path == "/app/.cursor/mcp.json"
+    assert config.cursor_workspace == "/app"
+    assert config.cursor_model == ""
     assert config.db_path == "/data/reviewed_prs.db"
 
 

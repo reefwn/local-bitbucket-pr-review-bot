@@ -12,8 +12,9 @@ URL.
 
 The primary review agent is headless **Claude Code** (`claude -p ...`).
 When Claude's usage limit is hit, the bot falls back to device-authenticated
-**Codex** (`codex exec ...`), then headless **Kiro CLI** (`kiro-cli chat ...`)
-if Codex also exhausts its quota. See "Claude/Codex/Kiro fallback" below.
+**Codex** (`codex exec ...`), then headless **Kiro CLI** (`kiro-cli chat ...`),
+then headless **Cursor Agent** (`agent -p ...`) when earlier providers exhaust
+their quota. See "Review provider fallback" below.
 
 Full design doc: `docs/superpowers/specs/2026-09-04-bitbucket-pr-review-bot-design.md`.
 
@@ -21,7 +22,7 @@ Full design doc: `docs/superpowers/specs/2026-09-04-bitbucket-pr-review-bot-desi
 
 Three services via `docker-compose`, sharing one Docker volume for SQLite
 state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `kiro-auth`,
-`kiro-aws-sso`, `kiro-data`):
+`kiro-aws-sso`, `kiro-data`, `cursor-auth`):
 
 ```
                  ┌──────────────┐
@@ -35,7 +36,7 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `k
                  └──────┬───────┘                              │
                         │                                      │
                  shared SQLite (reviewed_prs)          Bitbucket Cloud API
-                 shared claude-auth / codex-auth / kiro-auth / kiro-aws-sso / kiro-data
+                 shared claude-auth / codex-auth / kiro-auth / kiro-aws-sso / kiro-data / cursor-auth
 ```
 
 - `src/mcp_server/` — FastMCP server exposing a Bitbucket PR-only tool
@@ -50,7 +51,7 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `k
   and `POST /review` endpoint, using the same review path as the bot.
 - `src/review_runner.py` — shared logic: builds the review prompt, writes
   MCP config files, and invokes the headless CLI (Claude first, then Codex,
-  then Kiro on usage-limit failures).
+  then Cursor, then Kiro on usage-limit failures).
 - `src/bitbucket_client.py` — thin async HTTP client for the Bitbucket
   Cloud REST API (HTTP Basic auth via `BITBUCKET_EMAIL` +
   `BITBUCKET_API_TOKEN`).
@@ -60,7 +61,7 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `k
 - `src/config.py` — `Config` dataclass loading all environment variables
   (via `python-dotenv`).
 
-## Claude/Codex/Kiro fallback
+## Review provider fallback
 
 `review_runner.run_review()`:
 
@@ -82,7 +83,15 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `k
    ```
    The MCP URL is passed as a per-invocation TOML override, avoiding changes to
    `~/.codex/config.toml` in the volume holding the device-login credentials.
-4. If Codex reports a usage-limit failure, falls back to headless Kiro CLI:
+4. If Codex reports a usage-limit failure, falls back to headless Cursor Agent:
+   ```
+   agent -p "<prompt>" --trust --approve-mcps --force \
+     --output-format json --workspace /app
+   ```
+   using project MCP config at `.cursor/mcp.json` (regenerated at startup via
+   `write_cursor_mcp_config()` with the literal `MCP_URL`). Authenticate with
+   `agent login` (persisted on the `cursor-auth` volume).
+5. If Cursor reports a usage-limit failure, falls back to headless Kiro CLI:
    ```
    kiro-cli chat "<prompt>" --agent pr-reviewer --no-interactive \
      --output-format text
@@ -93,11 +102,11 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `k
    at startup with the literal `MCP_URL` value — Kiro CLI's `${VAR}`
    expansion does not apply to a remote MCP server's `url` field, so a
    static placeholder there fails at runtime.
-5. Any other (non-usage-limit) failure from Claude or Codex propagates
+6. Any other (non-usage-limit) failure from an earlier provider propagates
    immediately — the fallbacks are for exhausted quota, not general retries.
 
 This keeps the primary review path on Claude (per the original design), uses
-Codex when Claude genuinely cannot run, and only spends Kiro's quota when both
+Codex when Claude genuinely cannot run, and only spends Cursor or Kiro quota when
 earlier reviewers are exhausted.
 
 The web dashboard's **Review providers** modal persists a full provider order
@@ -133,6 +142,9 @@ docker compose exec bot codex login --device-auth
 # must use exec against the running bot container, not run --rm, or the
 # credentials are destroyed when the throwaway container exits)
 docker compose exec bot kiro-cli login --use-device-flow
+
+# one-time Cursor Agent login (cursor-auth volume)
+docker compose exec bot agent login
 ```
 
 ## Conventions
@@ -148,7 +160,7 @@ docker compose exec bot kiro-cli login --use-device-flow
 - Tests mock `subprocess.run` rather than invoking real CLIs; keep new CLI
   invocations similarly mockable (don't shell out via `os.system` or
   string-interpolated commands).
-- No retries baked into `run_review` beyond the Claude→Codex→Kiro fallback —
+- No retries baked into `run_review` beyond the configured provider-order fallback —
   surface failures rather than silently swallowing them.
 - Never decline or close a PR from the review path; only approve or
   request changes.

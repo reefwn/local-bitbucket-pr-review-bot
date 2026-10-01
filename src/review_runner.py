@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import subprocess
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,8 @@ _USAGE_LIMIT_PATTERNS = (
 
 KIRO_AGENT_NAME = "pr-reviewer"
 DEFAULT_MCP_URL = "http://mcp:7390/mcp"
-DEFAULT_PROVIDER_ORDER = ("claude", "codex", "kiro")
+DEFAULT_PROVIDER_ORDER = ("claude", "codex", "cursor", "kiro")
+DEFAULT_CURSOR_WORKSPACE = "/app"
 
 
 def build_prompt(repo_slug: str, pr_id: int, existing_comments: str) -> str:
@@ -68,6 +70,15 @@ def write_mcp_config(path: str, mcp_url: str) -> None:
     config = {"mcpServers": {"bitbucket-pr": {"type": "http", "url": mcp_url}}}
     with open(path, "w") as f:
         json.dump(config, f)
+
+
+def write_cursor_mcp_config(path: str, mcp_url: str) -> None:
+    """Write project `.cursor/mcp.json` for the Cursor Agent CLI."""
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    config = {"mcpServers": {"bitbucket-pr": {"type": "http", "url": mcp_url}}}
+    with open(path, "w") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
 
 
 _KIRO_AGENT_TOOLS = (
@@ -145,20 +156,6 @@ def _run_claude(prompt: str, mcp_config_path: str) -> subprocess.CompletedProces
     )
 
 
-def _run_kiro(prompt: str, agent_name: str = KIRO_AGENT_NAME) -> subprocess.CompletedProcess:
-    return subprocess.run(
-        [
-            "kiro-cli", "chat", prompt,
-            "--agent", agent_name,
-            "--no-interactive",
-            "--output-format", "text",
-        ],
-        capture_output=True,
-        text=True,
-        timeout=600,
-    )
-
-
 def _run_codex(prompt: str, mcp_url: str) -> subprocess.CompletedProcess:
     """Run Codex non-interactively with the Bitbucket MCP server for this review.
 
@@ -182,6 +179,49 @@ def _run_codex(prompt: str, mcp_url: str) -> subprocess.CompletedProcess:
         capture_output=True,
         text=True,
         timeout=600,
+    )
+
+
+def _run_kiro(prompt: str, agent_name: str = KIRO_AGENT_NAME) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [
+            "kiro-cli", "chat", prompt,
+            "--agent", agent_name,
+            "--no-interactive",
+            "--output-format", "text",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+
+
+def _run_cursor(
+    prompt: str, workspace: str, cursor_model: str | None = None
+) -> subprocess.CompletedProcess:
+    """Run Cursor Agent in print mode with project MCP config and headless approvals."""
+    args = ["agent"]
+    if cursor_model:
+        args.extend(["--model", cursor_model])
+    args.extend(
+        [
+            "-p",
+            prompt,
+            "--trust",
+            "--approve-mcps",
+            "--force",
+            "--output-format",
+            "json",
+            "--workspace",
+            workspace,
+        ]
+    )
+    return subprocess.run(
+        args,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        cwd=workspace,
     )
 
 
@@ -213,21 +253,42 @@ def _redact_prompt_arg(args: list[str]) -> list[str]:
     return [f"<prompt, {len(arg)} chars>" if len(arg) > 200 else arg for arg in args]
 
 
+def _cursor_result(stdout: str) -> str:
+    """Parse Cursor Agent `--output-format json` stdout."""
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError:
+        return stdout.strip()
+    if isinstance(payload.get("result"), str):
+        return payload["result"]
+    return stdout.strip()
+
+
 def _validated_provider_order(provider_order: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     providers = tuple(provider_order)
     if set(providers) != set(DEFAULT_PROVIDER_ORDER) or len(providers) != len(DEFAULT_PROVIDER_ORDER):
-        raise ValueError("Provider order must contain Claude, Codex, and Kiro exactly once.")
+        raise ValueError(
+            "Provider order must contain Claude, Codex, Kiro, and Cursor exactly once."
+        )
     return providers
 
 
 def _run_provider(
-    provider: str, prompt: str, mcp_config_path: str, kiro_agent_name: str, mcp_url: str
+    provider: str,
+    prompt: str,
+    mcp_config_path: str,
+    kiro_agent_name: str,
+    mcp_url: str,
+    cursor_workspace: str,
+    cursor_model: str | None,
 ) -> subprocess.CompletedProcess:
     if provider == "claude":
         return _run_claude(prompt, mcp_config_path)
     if provider == "codex":
         return _run_codex(prompt, mcp_url)
-    return _run_kiro(prompt, kiro_agent_name)
+    if provider == "kiro":
+        return _run_kiro(prompt, kiro_agent_name)
+    return _run_cursor(prompt, cursor_workspace, cursor_model)
 
 
 def _provider_result(provider: str, stdout: str) -> dict:
@@ -235,7 +296,9 @@ def _provider_result(provider: str, stdout: str) -> dict:
         return json.loads(stdout)
     if provider == "codex":
         return {"result": _codex_result(stdout), "agent": "codex"}
-    return {"result": stdout, "agent": "kiro"}
+    if provider == "kiro":
+        return {"result": stdout, "agent": "kiro"}
+    return {"result": _cursor_result(stdout), "agent": "cursor"}
 
 
 def run_review(
@@ -246,20 +309,30 @@ def run_review(
     kiro_agent_name: str = KIRO_AGENT_NAME,
     mcp_url: str = DEFAULT_MCP_URL,
     provider_order: list[str] | tuple[str, ...] = DEFAULT_PROVIDER_ORDER,
+    cursor_workspace: str = DEFAULT_CURSOR_WORKSPACE,
+    cursor_model: str | None = None,
 ) -> dict:
     """Run review providers in priority order, only falling back on quota exhaustion.
 
-    The primary result retains Claude's JSON response. Codex and Kiro return a
+    The primary result retains Claude's JSON response. Codex, Kiro, and Cursor return a
     normalized text result labelled with the agent that produced it.
 
     Raises subprocess.CalledProcessError if the invocation fails for a reason
-    other than an exhausted agent usage quota, or if the final Kiro fallback
+    other than an exhausted agent usage quota, or if the final configured fallback
     itself fails.
     """
     prompt = build_prompt(repo_slug, pr_id, existing_comments)
     providers = _validated_provider_order(provider_order)
     for index, provider in enumerate(providers):
-        result = _run_provider(provider, prompt, mcp_config_path, kiro_agent_name, mcp_url)
+        result = _run_provider(
+            provider,
+            prompt,
+            mcp_config_path,
+            kiro_agent_name,
+            mcp_url,
+            cursor_workspace,
+            cursor_model,
+        )
         usage_limit_hit = _is_usage_limit_failure(result.returncode, result.stdout, result.stderr)
         if result.returncode == 0 and not usage_limit_hit:
             return _provider_result(provider, result.stdout)

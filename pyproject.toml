@@ -1,7 +1,7 @@
 [project]
 name = "bitbucket-pr-review-bot"
 version = "0.1.0"
-description = "Poll Bitbucket for newly-opened PRs and review them with headless Claude, Codex, and Kiro"
+description = "Poll Bitbucket for newly-opened PRs and review them with headless Claude, Codex, Kiro, and Cursor"
 requires-python = ">=3.11"
 dependencies = [
     "mcp[cli]>=1.0.0,<2.0.0",
