@@ -14,6 +14,7 @@ def test_config_explicit_values():
     )
     assert config.bitbucket_email == "me@example.com"
     assert config.project_keys == ["PROJ1", "PROJ2"]
+    assert config.excluded_repo_slugs == []
     assert config.poll_interval_minutes == 5
     assert config.bitbucket_base_url == "https://api.bitbucket.org/2.0"
 
@@ -32,3 +33,9 @@ def test_config_project_keys_parsed_from_env(monkeypatch):
     monkeypatch.setenv("PROJECT_KEYS", " PROJ1, PROJ2 ,,PROJ3")
     config = Config()
     assert config.project_keys == ["PROJ1", "PROJ2", "PROJ3"]
+
+
+def test_config_excluded_repo_slugs_parsed_from_env(monkeypatch):
+    monkeypatch.setenv("EXCLUDED_REPO_SLUGS", " legacy-service, experimental-api ,,old-repo")
+    config = Config()
+    assert config.excluded_repo_slugs == ["legacy-service", "experimental-api", "old-repo"]

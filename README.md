@@ -9,7 +9,8 @@ by pasting a PR URL.
 ## Setup
 
 1. Copy `.env.example` to `.env` and fill in `BITBUCKET_EMAIL`,
-   `BITBUCKET_API_TOKEN`, `BITBUCKET_WORKSPACE`, and `PROJECT_KEYS`.
+   `BITBUCKET_API_TOKEN`, `BITBUCKET_WORKSPACE`, and `PROJECT_KEYS`. Optionally set
+   `EXCLUDED_REPO_SLUGS` to a comma-separated list of repository slugs to skip.
 2. Build the image: `docker compose build`
 3. One-time Claude login (uses your Claude Pro subscription, not an API key):
    ```
