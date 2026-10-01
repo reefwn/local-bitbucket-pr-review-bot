@@ -188,16 +188,16 @@ def test_init_db_migrates_existing_db_missing_outcome_column(tmp_path):
     assert reviews[0]["outcome"] == "unknown"
 
 
-def test_provider_order_defaults_to_claude_codex_kiro(tmp_path):
+def test_provider_order_defaults_to_claude_codex_cursor_kiro(tmp_path):
     db_path = str(tmp_path / "reviewed.db")
     init_db(db_path)
-    assert get_provider_order(db_path) == ["claude", "codex", "kiro"]
+    assert get_provider_order(db_path) == ["claude", "codex", "cursor", "kiro"]
 
 
 def test_provider_order_persists_in_requested_order(tmp_path):
     db_path = str(tmp_path / "reviewed.db")
-    set_provider_order(db_path, ["codex", "kiro", "claude"])
-    assert get_provider_order(db_path) == ["codex", "kiro", "claude"]
+    set_provider_order(db_path, ["codex", "kiro", "cursor", "claude"])
+    assert get_provider_order(db_path) == ["codex", "kiro", "cursor", "claude"]
 
 
 def test_provider_order_rejects_missing_or_unknown_providers(tmp_path):

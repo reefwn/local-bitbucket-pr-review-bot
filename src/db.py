@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-DEFAULT_PROVIDER_ORDER = ("claude", "codex", "kiro")
+DEFAULT_PROVIDER_ORDER = ("claude", "codex", "cursor", "kiro")
 
 
 def init_db(db_path: str) -> None:
@@ -60,7 +60,7 @@ def get_provider_order(db_path: str) -> list[str]:
 def set_provider_order(db_path: str, providers: list[str]) -> None:
     """Persist a complete, ordered list of the supported review providers."""
     if set(providers) != set(DEFAULT_PROVIDER_ORDER) or len(providers) != len(DEFAULT_PROVIDER_ORDER):
-        raise ValueError("Provider order must contain Claude, Codex, and Kiro exactly once.")
+        raise ValueError("Provider order must contain Claude, Codex, Kiro, and Cursor exactly once.")
     init_db(db_path)
     conn = sqlite3.connect(db_path)
     try:

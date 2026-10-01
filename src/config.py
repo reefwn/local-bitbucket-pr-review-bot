@@ -30,6 +30,9 @@ class Config:
     mcp_config_path: str = os.getenv("MCP_CONFIG_PATH", "/app/mcp-config.json")
     kiro_mcp_config_path: str = os.getenv("KIRO_MCP_CONFIG_PATH", "/app/.kiro/agents/pr-reviewer.json")
     kiro_agent_name: str = os.getenv("KIRO_AGENT_NAME", "pr-reviewer")
+    cursor_mcp_config_path: str = os.getenv("CURSOR_MCP_CONFIG_PATH", "/app/.cursor/mcp.json")
+    cursor_workspace: str = os.getenv("CURSOR_WORKSPACE", "/app")
+    cursor_model: str = os.getenv("CURSOR_MODEL", "")
     db_path: str = os.getenv("DB_PATH", "/data/reviewed_prs.db")
 
     @property

@@ -21,6 +21,9 @@ def _config(tmp_path):
         poll_interval_minutes=10,
         mcp_url="http://mcp:7390/mcp",
         mcp_config_path=str(tmp_path / "mcp-config.json"),
+        kiro_mcp_config_path=str(tmp_path / "pr-reviewer.json"),
+        cursor_mcp_config_path=str(tmp_path / "workspace" / ".cursor" / "mcp.json"),
+        cursor_workspace=str(tmp_path / "workspace"),
         db_path=str(tmp_path / "reviewed.db"),
     )
 
@@ -110,7 +113,7 @@ async def test_run_cycle_reviews_new_open_pr_and_marks_reviewed(tmp_path):
         await run_cycle(config, client)
 
     mock_run_review.assert_called_once()
-    assert mock_run_review.call_args[0][-1] == ["claude", "codex", "kiro"]
+    assert mock_run_review.call_args[0][6] == ["claude", "codex", "cursor", "kiro"]
     assert is_reviewed(config.db_path, "repo-a", 1, "hash-a") is True
 
     from src.db import list_recent_reviews
@@ -123,7 +126,7 @@ async def test_run_cycle_reviews_new_open_pr_and_marks_reviewed(tmp_path):
 async def test_run_cycle_uses_persisted_provider_order(tmp_path):
     config = _config(tmp_path)
     init_db(config.db_path)
-    set_provider_order(config.db_path, ["kiro", "codex", "claude"])
+    set_provider_order(config.db_path, ["kiro", "codex", "cursor", "claude"])
     now = datetime.now(timezone.utc)
     recent_created = now.isoformat().replace("+00:00", "Z")
     client = AsyncMock()
@@ -150,7 +153,7 @@ async def test_run_cycle_uses_persisted_provider_order(tmp_path):
         mock_run_review.return_value = {"result": "ok"}
         await run_cycle(config, client)
 
-    assert mock_run_review.call_args[0][-1] == ["kiro", "codex", "claude"]
+    assert mock_run_review.call_args[0][6] == ["kiro", "codex", "cursor", "claude"]
 
 
 @pytest.mark.asyncio

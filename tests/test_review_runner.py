@@ -2,7 +2,13 @@ import json
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from src.review_runner import build_prompt, run_review, write_kiro_mcp_config, write_mcp_config
+from src.review_runner import (
+    build_prompt,
+    run_review,
+    write_cursor_mcp_config,
+    write_kiro_mcp_config,
+    write_mcp_config,
+)
 
 
 def _claude_result(stdout="", stderr="", returncode=0, args=None):
@@ -85,6 +91,18 @@ def test_write_kiro_mcp_config_uses_literal_url_not_env_placeholder(tmp_path):
     assert "$" not in config["mcpServers"]["bitbucket-pr"]["url"]
 
 
+def test_write_cursor_mcp_config(tmp_path):
+    path = str(tmp_path / ".cursor" / "mcp.json")
+    write_cursor_mcp_config(path, "http://mcp:7390/mcp")
+    with open(path) as f:
+        config = json.load(f)
+    assert config == {
+        "mcpServers": {
+            "bitbucket-pr": {"type": "http", "url": "http://mcp:7390/mcp"}
+        }
+    }
+
+
 def test_run_review_invokes_claude_with_expected_args(tmp_path):
     config_path = str(tmp_path / "mcp-config.json")
     fake_result = _claude_result(stdout=json.dumps({"result": "posted comment"}))
@@ -153,7 +171,7 @@ def test_run_review_honors_configured_provider_order(tmp_path):
         returncode=0,
     )
     with patch("subprocess.run", return_value=codex_result) as mock_run:
-        result = run_review("my-repo", 42, "", config_path, provider_order=["codex", "claude", "kiro"])
+        result = run_review("my-repo", 42, "", config_path, provider_order=["codex", "claude", "kiro", "cursor"])
     assert result == {"result": "Reviewed", "agent": "codex"}
     assert mock_run.call_args[0][0][:2] == ["codex", "exec"]
 
@@ -163,34 +181,58 @@ def test_run_review_uses_configured_second_provider_after_usage_limit(tmp_path):
     codex_result = _claude_result(stdout="", stderr="usage limit exceeded", returncode=1)
     kiro_result = _claude_result(stdout="Reviewed by Kiro", returncode=0)
     with patch("subprocess.run", side_effect=[codex_result, kiro_result]) as mock_run:
-        result = run_review("my-repo", 42, "", config_path, provider_order=["codex", "kiro", "claude"])
+        result = run_review("my-repo", 42, "", config_path, provider_order=["codex", "kiro", "claude", "cursor"])
     assert result == {"result": "Reviewed by Kiro", "agent": "kiro"}
     assert mock_run.call_args_list[1][0][0][:2] == ["kiro-cli", "chat"]
 
 
-def test_run_review_falls_back_to_kiro_after_codex_usage_limit(tmp_path):
-    """Kiro is used only when Claude and Codex both exhaust their quotas."""
+def test_run_review_falls_back_to_cursor_after_codex_usage_limit(tmp_path):
+    """Cursor is used when Claude and Codex both exhaust their quotas."""
     config_path = str(tmp_path / "mcp-config.json")
     claude_result = _claude_result(
         stdout=json.dumps({"result": "You've hit your session limit. Try again later."}), returncode=0
     )
     codex_result = _claude_result(stdout="", stderr="Codex usage limit exceeded", returncode=1)
+    cursor_result = _claude_result(
+        stdout=json.dumps({"result": "Reviewed by Cursor"}),
+        returncode=0,
+    )
+    with patch("subprocess.run", side_effect=[claude_result, codex_result, cursor_result]) as mock_run:
+        result = run_review("my-repo", 42, "", config_path)
+    assert result == {"result": "Reviewed by Cursor", "agent": "cursor"}
+    assert mock_run.call_count == 3
+    cursor_args = mock_run.call_args_list[2][0][0]
+    assert cursor_args[0] == "agent"
+    assert "-p" in cursor_args
+    assert "--trust" in cursor_args
+    assert "--approve-mcps" in cursor_args
+    assert "--force" in cursor_args
+    assert "--output-format" in cursor_args
+    assert "json" in cursor_args
+
+
+def test_run_review_falls_back_to_kiro_after_cursor_usage_limit(tmp_path):
+    config_path = str(tmp_path / "mcp-config.json")
+    claude_result = _claude_result(stdout="", stderr="usage limit exceeded", returncode=1)
+    codex_result = _claude_result(stdout="", stderr="Codex usage limit exceeded", returncode=1)
+    cursor_result = _claude_result(stdout="", stderr="quota exceeded", returncode=1)
     kiro_result = _claude_result(stdout="Reviewed and requested changes on PR #42", returncode=0)
-    with patch("subprocess.run", side_effect=[claude_result, codex_result, kiro_result]) as mock_run:
+    with patch("subprocess.run", side_effect=[claude_result, codex_result, cursor_result, kiro_result]) as mock_run:
         result = run_review("my-repo", 42, "", config_path)
     assert result == {"result": "Reviewed and requested changes on PR #42", "agent": "kiro"}
-    assert mock_run.call_count == 3
-    kiro_args = mock_run.call_args_list[2][0][0]
+    assert mock_run.call_count == 4
+    kiro_args = mock_run.call_args_list[3][0][0]
     assert kiro_args[:2] == ["kiro-cli", "chat"]
 
 
-def test_run_review_propagates_kiro_failure_after_claude_and_codex_usage_limits(tmp_path):
+def test_run_review_propagates_final_failure_after_all_usage_limits(tmp_path):
     """If all available reviewers hit a limit or fail, the final failure propagates."""
     config_path = str(tmp_path / "mcp-config.json")
     claude_result = _claude_result(stdout="", stderr="usage limit exceeded", returncode=1)
     codex_result = _claude_result(stdout="", stderr="Codex usage limit exceeded", returncode=1)
+    cursor_result = _claude_result(stdout="", stderr="cursor auth expired", returncode=1)
     kiro_result = _claude_result(stdout="", stderr="kiro auth expired", returncode=1)
-    with patch("subprocess.run", side_effect=[claude_result, codex_result, kiro_result]):
+    with patch("subprocess.run", side_effect=[claude_result, codex_result, cursor_result, kiro_result]):
         try:
             run_review("my-repo", 42, "", config_path)
             assert False, "expected CalledProcessError"
@@ -230,11 +272,15 @@ def test_run_review_redacts_long_prompt_arg_in_kiro_failure(tmp_path):
         stdout="", stderr="Codex usage limit exceeded", returncode=1,
         args=["codex", "exec", prompt],
     )
+    cursor_result = _claude_result(
+        stdout="", stderr="cursor auth expired", returncode=1,
+        args=["agent", "-p", prompt, "--trust"],
+    )
     kiro_result = _claude_result(
         stdout="", stderr="kiro auth expired", returncode=1,
         args=["kiro-cli", "chat", prompt, "--agent", "pr-reviewer"],
     )
-    with patch("subprocess.run", side_effect=[claude_result, codex_result, kiro_result]):
+    with patch("subprocess.run", side_effect=[claude_result, codex_result, cursor_result, kiro_result]):
         try:
             run_review("my-repo", 42, long_comment, config_path)
             assert False, "expected CalledProcessError"

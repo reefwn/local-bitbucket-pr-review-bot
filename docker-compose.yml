@@ -18,6 +18,7 @@ services:
       - kiro-auth:/root/.kiro
       - kiro-aws-sso:/root/.aws
       - kiro-data:/root/.local/share/kiro-cli
+      - cursor-auth:/root/.cursor
     depends_on:
       - mcp
     restart: unless-stopped
@@ -36,6 +37,7 @@ services:
       - kiro-auth:/root/.kiro
       - kiro-aws-sso:/root/.aws
       - kiro-data:/root/.local/share/kiro-cli
+      - cursor-auth:/root/.cursor
     depends_on:
       - mcp
     restart: unless-stopped
@@ -47,3 +49,4 @@ volumes:
   kiro-auth:
   kiro-aws-sso:
   kiro-data:
+  cursor-auth:

@@ -21,7 +21,7 @@ the SQLite volume and persistent auth volumes for Claude, Codex, and Kiro.
 
 ## Review providers
 
-Supported providers are `claude`, `codex`, and `kiro`. Their priority is stored
+Supported providers are `claude`, `codex`, `kiro`, and `cursor`. Their priority is stored
 in SQLite and configured from the dashboard's **Review providers** modal.
 Every new manual or scheduled review reads that order:
 
@@ -30,7 +30,7 @@ Every new manual or scheduled review reads that order:
    rate, or quota limit.
 3. Any other provider failure is surfaced; do not turn it into a silent retry.
 
-The default order is Claude, Codex, Kiro. Provider-order validation must require
+The default order is Claude, Codex, Cursor, Kiro. Provider-order validation must require
 each supported provider exactly once. Keep the dashboard API, database setting,
 and `run_review()` behavior in sync when adding or removing a provider.
 
@@ -52,6 +52,7 @@ One-time provider authentication is persisted by Docker volumes:
 docker compose run --rm --entrypoint claude bot auth login
 docker compose exec bot codex login --device-auth
 docker compose exec bot kiro-cli login --use-device-flow
+docker compose exec bot agent login
 ```
 
 ## Engineering conventions

@@ -29,7 +29,7 @@ by pasting a PR URL.
    Credentials persist in the `codex-auth` volume (`/root/.codex`), so this is
    only needed once. Codex is invoked with the same Bitbucket MCP server as the
    other reviewers.
-5. One-time Kiro CLI login (used as the final fallback when Claude and Codex hit their
+5. One-time Kiro CLI login (used after Claude, Codex, and Cursor when those hit their
    usage limit). Start the stack first (`docker compose up -d`), then run
    login against the persistent `bot` container — **use `exec`, not
    `run --rm`**: `kiro-cli` stores its actual session/credentials under
@@ -52,8 +52,13 @@ by pasting a PR URL.
    confirm the code before the command exits. Credentials persist on the
    `kiro-data` volume (`/root/.local/share/kiro-cli`), so this is only
    needed once.
-6. Start everything: `docker compose up -d`
-7. Open `http://localhost:8080` to trigger a review manually, or wait for
+6. One-time Cursor Agent login (fallback after Claude and Codex). Run against the
+   running `bot` container — credentials persist on the `cursor-auth` volume:
+   ```
+   docker compose exec bot agent login
+   ```
+7. Start everything: `docker compose up -d`
+8. Open `http://localhost:8080` to trigger a review manually, or wait for
    the next poll cycle for newly-opened PRs to be reviewed automatically.
 
 ## Claude/Codex/Kiro fallback
@@ -62,9 +67,10 @@ The review runner (`src/review_runner.py`) always tries headless Claude
 first. If Claude reports a usage-limit failure (exhausted quota, rate
 limit, or session limit — whether via a non-zero exit or an exit-0 result
 that mentions the limit), the runner retries the same PR with device-authenticated
-Codex. If Codex also reports a quota failure, it uses headless Kiro CLI with the
-`pr-reviewer` agent config in `.kiro/agents/pr-reviewer.json`. Any other failure
-propagates immediately without falling back.
+Codex. If Codex also reports a quota failure, it uses headless Cursor Agent
+(`agent -p ...`) with project MCP config in `.cursor/mcp.json`, then headless
+Kiro CLI with the `pr-reviewer` agent config in `.kiro/agents/pr-reviewer.json`.
+Any other failure propagates immediately without falling back.
 
 ## Provider priority
 

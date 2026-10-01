@@ -15,7 +15,9 @@ def _config(tmp_path):
         poll_interval_minutes=10,
         mcp_url="http://mcp:7390/mcp",
         mcp_config_path=str(tmp_path / "mcp-config.json"),
-        kiro_mcp_config_path=str(tmp_path / "kiro-mcp-config.json"),
+        kiro_mcp_config_path=str(tmp_path / "pr-reviewer.json"),
+        cursor_mcp_config_path=str(tmp_path / "workspace" / ".cursor" / "mcp.json"),
+        cursor_workspace=str(tmp_path / "workspace"),
         db_path=str(tmp_path / "reviewed.db"),
     )
 
@@ -47,12 +49,12 @@ def test_index_serves_provider_settings_modal(tmp_path):
 def test_provider_config_returns_default_and_persists_update(tmp_path):
     app = create_app(_config(tmp_path), client=AsyncMock())
     client = TestClient(app)
-    assert client.get("/config/providers").json() == {"providers": ["claude", "codex", "kiro"]}
+    assert client.get("/config/providers").json() == {"providers": ["claude", "codex", "cursor", "kiro"]}
 
-    updated = client.put("/config/providers", json={"providers": ["codex", "kiro", "claude"]})
+    updated = client.put("/config/providers", json={"providers": ["codex", "kiro", "cursor", "claude"]})
     assert updated.status_code == 200
-    assert updated.json() == {"providers": ["codex", "kiro", "claude"]}
-    assert client.get("/config/providers").json() == {"providers": ["codex", "kiro", "claude"]}
+    assert updated.json() == {"providers": ["codex", "kiro", "cursor", "claude"]}
+    assert client.get("/config/providers").json() == {"providers": ["codex", "kiro", "cursor", "claude"]}
 
 
 def test_provider_config_rejects_incomplete_order(tmp_path):
