@@ -52,11 +52,15 @@ by pasting a PR URL.
    confirm the code before the command exits. Credentials persist on the
    `kiro-data` volume (`/root/.local/share/kiro-cli`), so this is only
    needed once.
-6. One-time Cursor Agent login (fallback after Claude and Codex). Run against the
-   running `bot` container — credentials persist on the `cursor-auth` volume:
+6. One-time Cursor Agent login (shared by **bot** and **web** via Docker volumes).
+   Dashboard reviews run in **web**, so prefer logging in there:
    ```
-   docker compose exec bot agent login
+   docker compose up -d
+   docker compose exec web agent login
    ```
+   Session tokens persist in `cursor-agent-auth` (`/root/.config/cursor`); project MCP
+   settings use `cursor-auth` (`/root/.cursor`). Either service can run `agent login`
+   once both containers are up.
 7. Start everything: `docker compose up -d`
 8. Open `http://localhost:8080` to trigger a review manually, or wait for
    the next poll cycle for newly-opened PRs to be reviewed automatically.

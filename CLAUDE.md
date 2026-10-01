@@ -22,7 +22,7 @@ Full design doc: `docs/superpowers/specs/2026-09-04-bitbucket-pr-review-bot-desi
 
 Three services via `docker-compose`, sharing one Docker volume for SQLite
 state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `kiro-auth`,
-`kiro-aws-sso`, `kiro-data`, `cursor-auth`):
+`kiro-aws-sso`, `kiro-data`, `cursor-auth`, `cursor-agent-auth`):
 
 ```
                  ┌──────────────┐
@@ -36,7 +36,7 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `k
                  └──────┬───────┘                              │
                         │                                      │
                  shared SQLite (reviewed_prs)          Bitbucket Cloud API
-                 shared claude-auth / codex-auth / kiro-auth / kiro-aws-sso / kiro-data / cursor-auth
+                 shared claude-auth / codex-auth / kiro-auth / kiro-aws-sso / kiro-data / cursor-auth / cursor-agent-auth
 ```
 
 - `src/mcp_server/` — FastMCP server exposing a Bitbucket PR-only tool
@@ -90,7 +90,7 @@ state and Docker volumes for persisted CLI auth (`claude-auth`, `codex-auth`, `k
    ```
    using project MCP config at `.cursor/mcp.json` (regenerated at startup via
    `write_cursor_mcp_config()` with the literal `MCP_URL`). Authenticate with
-   `agent login` (persisted on the `cursor-auth` volume).
+   `agent login` (tokens on `cursor-agent-auth`, shared by bot and web).
 5. If Cursor reports a usage-limit failure, falls back to headless Kiro CLI:
    ```
    kiro-cli chat "<prompt>" --agent pr-reviewer --no-interactive \
@@ -143,8 +143,8 @@ docker compose exec bot codex login --device-auth
 # credentials are destroyed when the throwaway container exits)
 docker compose exec bot kiro-cli login --use-device-flow
 
-# one-time Cursor Agent login (cursor-auth volume)
-docker compose exec bot agent login
+# one-time Cursor Agent login (cursor-agent-auth volume; shared by bot and web)
+docker compose exec web agent login
 ```
 
 ## Conventions
