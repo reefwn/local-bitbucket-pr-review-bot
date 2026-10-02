@@ -52,7 +52,7 @@ One-time provider authentication is persisted by Docker volumes:
 docker compose run --rm --entrypoint claude bot auth login
 docker compose exec bot codex login --device-auth
 docker compose exec bot kiro-cli login --use-device-flow
-docker compose exec bot agent login
+docker compose exec web agent login
 ```
 
 ## Engineering conventions
