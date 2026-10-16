@@ -1,4 +1,4 @@
-import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException
@@ -7,9 +7,11 @@ from pydantic import BaseModel
 
 from src.bitbucket_client import BitbucketClient
 from src.config import Config
-from src.db import count_reviews, get_provider_order, init_db, list_recent_reviews, mark_reviewed, set_provider_order
-from src.pr_url import parse_pr_url
-from src.review_runner import run_review, write_cursor_mcp_config, write_kiro_mcp_config, write_mcp_config
+from src.db import count_reviews, get_provider_order, init_db, list_recent_reviews, set_provider_order
+from src.pr_url import extract_pr_urls_from_text, parse_pr_url
+from src.review_runner import write_cursor_mcp_config, write_kiro_mcp_config, write_mcp_config
+from src.web.review_queue import ReviewQueue
+from src.web.review_service import execute_review
 
 _FORM_HTML = """<!doctype html>
 <html lang="en">
@@ -176,7 +178,69 @@ _FORM_HTML = """<!doctype html>
   @media (max-width: 480px) {
     form { flex-direction: column; }
     button { align-self: stretch; }
+    .queue-toolbar { flex-direction: column; align-items: stretch; }
   }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 20px;
+    padding: 28px 20px;
+    text-align: center;
+    color: var(--text-dim);
+    background: var(--bg);
+    margin-bottom: 14px;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+  .drop-zone .drop-title {
+    margin: 0 0 6px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .drop-zone .drop-hint {
+    margin: 0;
+    font-size: 13px;
+  }
+
+  textarea.bulk-input {
+    width: 100%;
+    min-height: 88px;
+    resize: vertical;
+    border: none;
+    border-radius: 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    outline: none;
+  }
+  textarea.bulk-input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  textarea.bulk-input::placeholder { color: var(--text-faint); }
+
+  .queue-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .queue-toolbar form { flex: 1; min-width: 200px; }
+  .secondary-button {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .secondary-button:hover { filter: none; background: var(--accent-soft); }
+  .row.failed .badge { background: var(--err-soft); color: var(--err); }
 
   .log-header {
     display: flex;
@@ -387,7 +451,7 @@ _FORM_HTML = """<!doctype html>
   <div class="page-heading">
     <div>
       <h1>PR Review</h1>
-      <p class="sub">Paste a Bitbucket pull request link and review it right away.</p>
+      <p class="sub">Paste or drop Bitbucket PR links to queue reviews one after another.</p>
     </div>
     <button type="button" class="settings-button" id="provider-settings" aria-label="Review provider settings" title="Review provider settings">
       <svg class="lucide lucide-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -398,21 +462,40 @@ _FORM_HTML = """<!doctype html>
   </div>
 
   <div class="card">
-    <form id="review-form">
-      <div class="input-wrap">
-        <input
-          type="text"
-          id="pr_url"
-          name="pr_url"
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="https://bitbucket.org/{workspace}/{repo}/pull-requests/{id}"
-        >
-      </div>
-      <button type="submit" id="submit-btn">Review</button>
-    </form>
+    <div class="drop-zone" id="drop-zone">
+      <p class="drop-title">Drop PR links here</p>
+      <p class="drop-hint">Files or text with one or more Bitbucket pull request URLs</p>
+    </div>
+    <textarea
+      class="bulk-input"
+      id="pr_urls_bulk"
+      spellcheck="false"
+      placeholder="Or paste URLs here, one per line&#10;https://bitbucket.org/{workspace}/{repo}/pull-requests/{id}"
+    ></textarea>
+    <div class="queue-toolbar">
+      <form id="review-form">
+        <div class="input-wrap">
+          <input
+            type="text"
+            id="pr_url"
+            name="pr_url"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Quick add: single PR URL"
+          >
+        </div>
+        <button type="submit" id="submit-btn">Queue</button>
+      </form>
+      <button type="button" class="secondary-button" id="enqueue-bulk-btn">Queue pasted links</button>
+    </div>
     <p class="status-line" id="status"></p>
   </div>
+
+  <div class="log-header" id="queue-header" hidden>
+    <h2>Review queue</h2>
+    <span class="count" id="queue-count"></span>
+  </div>
+  <div id="queue-log" hidden></div>
 
   <div class="log-header">
     <h2>Recently reviewed</h2>
@@ -450,6 +533,13 @@ const logCountEl = document.getElementById("log-count");
 const form = document.getElementById("review-form");
 const submitBtn = document.getElementById("submit-btn");
 const urlInput = document.getElementById("pr_url");
+const bulkInput = document.getElementById("pr_urls_bulk");
+const dropZone = document.getElementById("drop-zone");
+const enqueueBulkBtn = document.getElementById("enqueue-bulk-btn");
+const queueHeader = document.getElementById("queue-header");
+const queueLogEl = document.getElementById("queue-log");
+const queueCountEl = document.getElementById("queue-count");
+let queuePollTimer = null;
 const pagerEl = document.getElementById("pager");
 const pagerLabelEl = document.getElementById("pager-label");
 const prevPageBtn = document.getElementById("prev-page");
@@ -629,58 +719,182 @@ nextPageBtn.addEventListener("click", () => {
   loadReviews(currentPage + 1);
 });
 
-function prependPending(repoGuess) {
-  const row = document.createElement("div");
-  row.className = "row pending fade-in";
-  row.innerHTML = `
-    <span class="badge">&#8230;</span>
-    <span class="path plain">${repoGuess || "Reviewing&hellip;"}</span>
-    <span class="time">Now</span>
-  `;
-  const empty = logEl.querySelector(".empty");
-  if (empty) empty.remove();
-  logEl.prepend(row);
-  return row;
+function queueStatusLabel(item) {
+  if (item.status === "pending") return "Queued";
+  if (item.status === "running") return "Reviewing\u2026";
+  if (item.status === "completed") {
+    if (item.outcome === "approved") return "Approved";
+    if (item.outcome === "changes_requested") return "Changes requested";
+    return "Done";
+  }
+  return "Failed";
+}
+
+function renderQueue(data) {
+  const items = data.items || [];
+  const active = items.some(i => i.status === "pending" || i.status === "running");
+  queueHeader.hidden = !items.length;
+  queueLogEl.hidden = !items.length;
+  if (!items.length) {
+    queueCountEl.textContent = "";
+    return active;
+  }
+  const pendingCount = items.filter(i => i.status === "pending" || i.status === "running").length;
+  queueCountEl.textContent = pendingCount ? `${pendingCount} active` : "";
+
+  queueLogEl.innerHTML = items.map(item => {
+    const rowClass = item.status === "failed"
+      ? "row failed"
+      : item.status === "running" || item.status === "pending"
+      ? "row pending"
+      : item.outcome === "changes_requested"
+      ? "row changes-requested"
+      : item.outcome === "approved"
+      ? "row"
+      : "row outcome-unknown";
+    const glyph = item.status === "failed"
+      ? "!"
+      : item.status === "running" || item.status === "pending"
+      ? "&#8230;"
+      : item.outcome === "changes_requested"
+      ? "&minus;"
+      : item.outcome === "approved"
+      ? "&#10003;"
+      : "?";
+    const label = queueStatusLabel(item);
+    const time = item.status === "running" ? "Now" : (item.finished_at ? formatTime(item.finished_at) : formatTime(item.enqueued_at));
+    return `
+      <div class="${rowClass}">
+        <span class="badge">${glyph}</span>
+        <span class="path">
+          <a href="${item.pr_url}" target="_blank" rel="noopener noreferrer">${repoAndPr(item.repo_slug, item.pr_id)}</a>
+          <span class="plain" style="display:block;font-size:12px;color:var(--text-faint);margin-top:2px;">${label}${item.error ? ` — ${item.error}` : ""}</span>
+        </span>
+        <span class="time">${time}</span>
+      </div>
+    `;
+  }).join("");
+  return active;
+}
+
+async function loadQueue() {
+  try {
+    const res = await fetch("/reviews/queue");
+    const data = await res.json();
+    const active = renderQueue(data);
+    if (active) {
+      if (!queuePollTimer) {
+        queuePollTimer = setInterval(async () => {
+          const stillActive = await loadQueue();
+          if (!stillActive && queuePollTimer) {
+            clearInterval(queuePollTimer);
+            queuePollTimer = null;
+            loadReviews(1);
+          }
+        }, 2000);
+      }
+    } else if (queuePollTimer) {
+      clearInterval(queuePollTimer);
+      queuePollTimer = null;
+    }
+    return active;
+  } catch {
+    return false;
+  }
+}
+
+function setStatus(message, kind) {
+  statusEl.textContent = message;
+  statusEl.className = kind ? `status-line ${kind}` : "status-line";
+}
+
+async function enqueueReviews({ pr_urls = [], text = "" }) {
+  const res = await fetch("/reviews/queue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ pr_urls, text }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.detail || "Could not enqueue reviews.");
+  }
+  return data;
+}
+
+async function submitEnqueue({ pr_urls = [], text = "", clearBulk = false, clearSingle = false }) {
+  if (!pr_urls.length && !text.trim()) return;
+  submitBtn.disabled = true;
+  enqueueBulkBtn.disabled = true;
+  setStatus("Adding to queue\u2026", "");
+  try {
+    const data = await enqueueReviews({ pr_urls, text });
+    const n = (data.enqueued || []).length;
+    const rejected = (data.rejected || []).length;
+    if (n) {
+      setStatus(
+        rejected
+          ? `Queued ${n} PR${n === 1 ? "" : "s"} (${rejected} skipped).`
+          : `Queued ${n} PR${n === 1 ? "" : "s"}.`,
+        "ok"
+      );
+    } else {
+      setStatus(rejected ? "No new PRs queued. Check URLs or duplicates." : "Nothing to queue.", "err");
+    }
+    if (clearSingle) urlInput.value = "";
+    if (clearBulk) bulkInput.value = "";
+    await loadQueue();
+    if (currentPage === 1) loadReviews(1);
+  } catch (error) {
+    setStatus(error.message || "Could not enqueue reviews.", "err");
+  } finally {
+    submitBtn.disabled = false;
+    enqueueBulkBtn.disabled = false;
+  }
 }
 
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const pr_url = urlInput.value.trim();
   if (!pr_url) return;
+  await submitEnqueue({ pr_urls: [pr_url], clearSingle: true });
+});
 
-  submitBtn.disabled = true;
-  statusEl.textContent = "Reviewing\u2026";
-  statusEl.className = "status-line";
-  const pendingRow = currentPage === 1 ? prependPending(pr_url.replace(/^https?:\\/\\//, "")) : null;
+enqueueBulkBtn.addEventListener("click", async () => {
+  await submitEnqueue({ text: bulkInput.value, clearBulk: true });
+});
 
-  try {
-    const res = await fetch("/review", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pr_url }),
-    });
-    const data = await res.json();
-    if (pendingRow) pendingRow.remove();
+function preventDefaults(event) {
+  event.preventDefault();
+  event.stopPropagation();
+}
 
-    if (res.ok) {
-      statusEl.textContent = `Reviewed ${data.repo_slug} #${data.pr_id}`;
-      statusEl.className = "status-line ok";
-      urlInput.value = "";
-    } else {
-      statusEl.textContent = data.detail || "Review failed.";
-      statusEl.className = "status-line err";
+["dragenter", "dragover", "dragleave", "drop"].forEach(name => {
+  dropZone.addEventListener(name, preventDefaults);
+});
+dropZone.addEventListener("dragover", () => dropZone.classList.add("drag-over"));
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
+dropZone.addEventListener("drop", async (event) => {
+  dropZone.classList.remove("drag-over");
+  const files = [...(event.dataTransfer?.files || [])];
+  const textBits = [];
+  if (event.dataTransfer?.getData("text")) {
+    textBits.push(event.dataTransfer.getData("text"));
+  }
+  for (const file of files) {
+    try {
+      textBits.push(await file.text());
+    } catch {
+      /* ignore unreadable drops */
     }
-  } catch {
-    if (pendingRow) pendingRow.remove();
-    statusEl.textContent = "Review failed: could not reach the server.";
-    statusEl.className = "status-line err";
-  } finally {
-    submitBtn.disabled = false;
-    loadReviews(1);
+  }
+  const text = textBits.join("\\n");
+  if (text.trim()) {
+    await submitEnqueue({ text });
   }
 });
 
 loadReviews();
+loadQueue();
 setInterval(() => {
   if (currentPage === 1) loadReviews(1);
 }, 15000);
@@ -694,16 +908,13 @@ class ReviewRequest(BaseModel):
     pr_url: str
 
 
+class QueueReviewsRequest(BaseModel):
+    pr_urls: list[str] = []
+    text: str = ""
+
+
 class ProviderOrderRequest(BaseModel):
     providers: list[str]
-
-
-def _format_comments(comments_data: dict) -> str:
-    return "\n".join(
-        f"[{c['user']['display_name']}] {c['content']['raw']}"
-        for c in comments_data.get("values", [])
-        if c.get("content", {}).get("raw")
-    )
 
 
 def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI:
@@ -713,7 +924,18 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
     write_kiro_mcp_config(config.kiro_mcp_config_path, config.mcp_url)
     write_cursor_mcp_config(config.cursor_mcp_config_path, config.mcp_url)
     client = client or BitbucketClient(config)
-    app = FastAPI()
+    review_queue = ReviewQueue(config=config, client=client)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        await review_queue.start_worker()
+        try:
+            yield
+        finally:
+            await review_queue.stop_worker()
+
+    app = FastAPI(lifespan=lifespan)
+    app.state.review_queue = review_queue
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
@@ -763,44 +985,45 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
             raise HTTPException(status_code=400, detail=str(e))
 
         try:
-            pr_data = await client.get(f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr_id}")
-            comments_data = await client.get(
-                f"/repositories/{config.bitbucket_workspace}/{repo_slug}/pullrequests/{pr_id}/comments"
-            )
-            comments_text = _format_comments(comments_data)
-            result = await asyncio.to_thread(
-                run_review,
-                repo_slug,
-                pr_id,
-                comments_text,
-                config.mcp_config_path,
-                config.kiro_agent_name,
-                config.mcp_url,
-                get_provider_order(config.db_path),
-                config.cursor_workspace,
-                config.cursor_model or None,
-            )
-            try:
-                outcome = await client.get_review_outcome(repo_slug, pr_id)
-            except Exception:
-                outcome = "unknown"
-            mark_reviewed(
-                config.db_path,
-                repo_slug,
-                pr_id,
-                datetime.now(timezone.utc).isoformat(),
-                pr_data["source"]["commit"]["hash"],
-                outcome,
-            )
-            return {
-                "status": "reviewed",
-                "repo_slug": repo_slug,
-                "pr_id": pr_id,
-                "outcome": outcome,
-                "claude_result": result,
-            }
+            return await execute_review(config, client, repo_slug, pr_id)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"Review failed: {e}")
+
+    @app.get("/reviews/queue")
+    async def get_review_queue() -> dict:
+        return {"items": review_queue.list_items()}
+
+    @app.post("/reviews/queue")
+    async def enqueue_reviews(req: QueueReviewsRequest) -> dict:
+        now = datetime.now(timezone.utc).isoformat()
+        urls: list[str] = []
+        seen: set[str] = set()
+        rejected: list[dict] = []
+
+        for raw in req.pr_urls:
+            url = raw.strip()
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            urls.append(url)
+
+        found, parse_errors = extract_pr_urls_from_text(req.text, config.bitbucket_workspace)
+        for err in parse_errors:
+            rejected.append({"input": "", "error": err})
+        for url in found:
+            if url not in seen:
+                seen.add(url)
+                urls.append(url)
+
+        if not urls and not rejected:
+            raise HTTPException(status_code=400, detail="No PR URLs provided.")
+
+        added, enqueue_rejected = review_queue.enqueue_urls(urls, now)
+        rejected.extend(enqueue_rejected)
+        return {
+            "enqueued": [item.to_dict() for item in added],
+            "rejected": rejected,
+        }
 
     return app
 
