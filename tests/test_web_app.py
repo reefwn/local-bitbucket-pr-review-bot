@@ -1,3 +1,5 @@
+import asyncio
+import time
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -35,6 +37,7 @@ def test_index_serves_form_with_url_input_and_submit(tmp_path):
     resp = client.get("/")
     assert resp.status_code == 200
     assert "pr_url" in resp.text
+    assert "drop-zone" in resp.text
     assert "<button" in resp.text
 
 
@@ -89,7 +92,7 @@ def test_reviews_lists_reviewed_prs_after_a_successful_review(tmp_path):
     fake_client.get.side_effect = fake_get
     app = create_app(config, client=fake_client)
 
-    with patch("src.web.app.run_review") as mock_run_review:
+    with patch("src.web.review_service.run_review") as mock_run_review:
         mock_run_review.return_value = {"result": "ok"}
         client = TestClient(app)
         client.post("/review", json={"pr_url": "https://bitbucket.org/my-ws/my-repo/pull-requests/5"})
@@ -152,7 +155,7 @@ def test_review_success_marks_reviewed(tmp_path):
     fake_client.get.side_effect = fake_get
     app = create_app(config, client=fake_client)
 
-    with patch("src.web.app.run_review") as mock_run_review:
+    with patch("src.web.review_service.run_review") as mock_run_review:
         mock_run_review.return_value = {"result": "ok"}
         client = TestClient(app)
         resp = client.post(
@@ -184,7 +187,7 @@ def test_review_records_changes_requested_outcome(tmp_path):
     fake_client.get.side_effect = fake_get
     app = create_app(config, client=fake_client)
 
-    with patch("src.web.app.run_review") as mock_run_review:
+    with patch("src.web.review_service.run_review") as mock_run_review:
         mock_run_review.return_value = {"result": "ok"}
         client = TestClient(app)
         resp = client.post(
@@ -213,7 +216,7 @@ def test_review_records_unknown_outcome_when_lookup_fails(tmp_path):
     fake_client.get.side_effect = fake_get
     app = create_app(config, client=fake_client)
 
-    with patch("src.web.app.run_review") as mock_run_review:
+    with patch("src.web.review_service.run_review") as mock_run_review:
         mock_run_review.return_value = {"result": "ok"}
         client = TestClient(app)
         resp = client.post(
@@ -224,6 +227,65 @@ def test_review_records_unknown_outcome_when_lookup_fails(tmp_path):
     # The review itself still succeeds; outcome just falls back to 'unknown'.
     assert resp.status_code == 200
     assert resp.json()["outcome"] == "unknown"
+
+
+def _fake_pr_get(path, params=None):
+    if path.endswith("/comments"):
+        return {"values": []}
+    return {"source": {"commit": {"hash": "hash-a"}}}
+
+
+def test_enqueue_reviews_processes_queue_sequentially(tmp_path):
+    config = _config(tmp_path)
+    fake_client = AsyncMock()
+    fake_client.get_review_outcome.return_value = "approved"
+    fake_client.get.side_effect = _fake_pr_get
+    app = create_app(config, client=fake_client)
+
+    urls = [
+        "https://bitbucket.org/my-ws/repo-a/pull-requests/1",
+        "https://bitbucket.org/my-ws/repo-b/pull-requests/2",
+    ]
+
+    with patch("src.web.review_service.run_review") as mock_run_review:
+        mock_run_review.return_value = {"result": "ok"}
+        with TestClient(app) as client:
+            resp = client.post("/reviews/queue", json={"pr_urls": urls})
+            assert resp.status_code == 200
+            body = resp.json()
+            assert len(body["enqueued"]) == 2
+
+            for _ in range(100):
+                queue = client.get("/reviews/queue").json()["items"]
+                if queue and all(i["status"] in ("completed", "failed") for i in queue):
+                    break
+                time.sleep(0.05)
+
+            queue = client.get("/reviews/queue").json()["items"]
+            assert len(queue) == 2
+            assert all(i["status"] == "completed" for i in queue)
+            assert mock_run_review.call_count == 2
+
+
+def test_enqueue_rejects_duplicate_active_items(tmp_path):
+    config = _config(tmp_path)
+    fake_client = AsyncMock()
+    fake_client.get_review_outcome.return_value = "approved"
+    fake_client.get.side_effect = _fake_pr_get
+    app = create_app(config, client=fake_client)
+    url = "https://bitbucket.org/my-ws/my-repo/pull-requests/5"
+
+    async def hang_review(*_args, **_kwargs):
+        await asyncio.Event().wait()
+
+    with patch("src.web.review_service.execute_review", side_effect=hang_review):
+        with TestClient(app) as client:
+            first = client.post("/reviews/queue", json={"pr_urls": [url]})
+            second = client.post("/reviews/queue", json={"pr_urls": [url]})
+            assert first.status_code == 200
+            assert second.status_code == 200
+            assert len(second.json()["enqueued"]) == 0
+            assert second.json()["rejected"][0]["error"] == "Already queued or in progress."
 
 
 def test_review_returns_json_error_when_run_review_fails(tmp_path):
@@ -238,7 +300,7 @@ def test_review_returns_json_error_when_run_review_fails(tmp_path):
     fake_client.get.side_effect = fake_get
     app = create_app(config, client=fake_client)
 
-    with patch("src.web.app.run_review") as mock_run_review:
+    with patch("src.web.review_service.run_review") as mock_run_review:
         mock_run_review.side_effect = Exception("claude blew up")
         client = TestClient(app)
         resp = client.post(
