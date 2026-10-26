@@ -80,8 +80,9 @@ _FORM_HTML = """<!doctype html>
 
   .sub {
     color: var(--text-dim);
-    font-size: 15px;
-    margin: 0 0 28px;
+    font-size: 14px;
+    margin: 0 0 24px;
+    max-width: 36em;
   }
 
   .card {
@@ -89,39 +90,7 @@ _FORM_HTML = """<!doctype html>
     border-radius: 24px;
     box-shadow: var(--shadow);
     padding: 20px;
-    margin-bottom: 24px;
-  }
-
-  form {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .input-wrap {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    background: var(--bg);
-    border-radius: 999px;
-    padding: 4px 4px 4px 18px;
-    min-width: 0;
-  }
-
-  input[type="text"] {
-    flex: 1;
-    background: transparent;
-    border: none;
-    color: var(--text);
-    font-family: var(--sans);
-    font-size: 14px;
-    padding: 10px 4px;
-    outline: none;
-    min-width: 0;
-  }
-
-  input[type="text"]::placeholder {
-    color: var(--text-faint);
+    margin-bottom: 28px;
   }
 
   button {
@@ -176,71 +145,90 @@ _FORM_HTML = """<!doctype html>
   .status-line.ok { color: var(--ok); }
 
   @media (max-width: 480px) {
-    form { flex-direction: column; }
-    button { align-self: stretch; }
-    .queue-toolbar { flex-direction: column; align-items: stretch; }
+    .composer-footer { flex-direction: column; align-items: stretch; }
+    .composer-footer button { width: 100%; }
+    .composer-hint { display: none; }
   }
 
-  .drop-zone {
+  .composer {
     border: 2px dashed var(--border);
-    border-radius: 20px;
-    padding: 28px 20px;
-    text-align: center;
-    color: var(--text-dim);
-    background: var(--bg);
-    margin-bottom: 14px;
+    padding: 16px;
     transition: border-color 0.15s ease, background 0.15s ease;
   }
-  .drop-zone.drag-over {
+  .composer.drag-over {
     border-color: var(--accent);
     background: var(--accent-soft);
-    color: var(--text);
   }
-  .drop-zone .drop-title {
-    margin: 0 0 6px;
-    font-weight: 600;
-    color: var(--text);
+  .composer-label {
+    display: block;
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 10px 4px;
   }
-  .drop-zone .drop-hint {
-    margin: 0;
-    font-size: 13px;
-  }
-
-  textarea.bulk-input {
+  .composer-input {
     width: 100%;
-    min-height: 88px;
+    min-height: 72px;
+    max-height: 200px;
     resize: vertical;
     border: none;
-    border-radius: 16px;
+    border-radius: 14px;
     background: var(--bg);
     color: var(--text);
     font-family: var(--sans);
-    font-size: 13px;
+    font-size: 14px;
     line-height: 1.5;
-    padding: 14px 16px;
-    margin-bottom: 14px;
+    padding: 12px 14px;
     outline: none;
   }
-  textarea.bulk-input:focus-visible {
+  .composer-input:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
-  textarea.bulk-input::placeholder { color: var(--text-faint); }
-
-  .queue-toolbar {
+  .composer-input::placeholder { color: var(--text-faint); }
+  .composer-footer {
     display: flex;
     align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 0 4px;
   }
-  .queue-toolbar form { flex: 1; min-width: 200px; }
-  .secondary-button {
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
+  .composer-footer .status-line:not(:empty) {
+    margin: 0;
+    flex: 1;
+    min-width: 0;
+    max-height: none;
   }
-  .secondary-button:hover { filter: none; background: var(--accent-soft); }
+  .composer-hint {
+    font-size: 12px;
+    color: var(--text-faint);
+    font-weight: 500;
+  }
+
+  .panel { margin-bottom: 28px; }
+  .panel[hidden] { display: none; }
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
   .row.failed .badge { background: var(--err-soft); color: var(--err); }
+  .row .status-pill {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--text-faint);
+    vertical-align: middle;
+  }
+  .row.pending .status-pill,
+  .row.failed .status-pill { color: var(--pending); }
+  .row.failed .status-pill { color: var(--err); }
 
   .log-header {
     display: flex;
@@ -451,7 +439,7 @@ _FORM_HTML = """<!doctype html>
   <div class="page-heading">
     <div>
       <h1>PR Review</h1>
-      <p class="sub">Paste or drop Bitbucket PR links to queue reviews one after another.</p>
+      <p class="sub">Add Bitbucket PR links to the queue; reviews run one at a time.</p>
     </div>
     <button type="button" class="settings-button" id="provider-settings" aria-label="Review provider settings" title="Review provider settings">
       <svg class="lucide lucide-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -461,47 +449,37 @@ _FORM_HTML = """<!doctype html>
     </button>
   </div>
 
-  <div class="card">
-    <div class="drop-zone" id="drop-zone">
-      <p class="drop-title">Drop PR links here</p>
-      <p class="drop-hint">Files or text with one or more Bitbucket pull request URLs</p>
-    </div>
+  <div class="card composer" id="drop-zone">
+    <label class="composer-label" for="pr_urls_bulk">Pull request URLs</label>
     <textarea
-      class="bulk-input"
+      class="composer-input"
       id="pr_urls_bulk"
+      name="pr_urls_bulk"
       spellcheck="false"
-      placeholder="Or paste URLs here, one per line&#10;https://bitbucket.org/{workspace}/{repo}/pull-requests/{id}"
+      placeholder="Paste or drop links here (one per line)"
     ></textarea>
-    <div class="queue-toolbar">
-      <form id="review-form">
-        <div class="input-wrap">
-          <input
-            type="text"
-            id="pr_url"
-            name="pr_url"
-            autocomplete="off"
-            spellcheck="false"
-            placeholder="Quick add: single PR URL"
-          >
-        </div>
-        <button type="submit" id="submit-btn">Queue</button>
-      </form>
-      <button type="button" class="secondary-button" id="enqueue-bulk-btn">Queue pasted links</button>
+    <div class="composer-footer">
+      <p class="status-line" id="status"></p>
+      <span class="composer-hint" id="composer-hint">&#8984;&#9166; to queue</span>
+      <button type="button" id="enqueue-btn">Queue reviews</button>
     </div>
-    <p class="status-line" id="status"></p>
   </div>
 
-  <div class="log-header" id="queue-header" hidden>
-    <h2>Review queue</h2>
-    <span class="count" id="queue-count"></span>
-  </div>
-  <div id="queue-log" hidden></div>
+  <section class="panel" id="queue-panel" hidden>
+    <div class="log-header">
+      <h2>In progress</h2>
+      <span class="count" id="queue-count"></span>
+    </div>
+    <div id="queue-log" class="stack"></div>
+  </section>
 
-  <div class="log-header">
-    <h2>Recently reviewed</h2>
-    <span class="count" id="log-count"></span>
-  </div>
-  <div id="log"><p class="empty">Loading&hellip;</p></div>
+  <section class="panel">
+    <div class="log-header">
+      <h2>Recently reviewed</h2>
+      <span class="count" id="log-count"></span>
+    </div>
+    <div id="log" class="stack"><p class="empty">Loading&hellip;</p></div>
+  </section>
   <div class="pager" id="pager" hidden>
     <button type="button" id="prev-page">&larr; Newer</button>
     <span id="pager-label"></span>
@@ -530,13 +508,11 @@ _FORM_HTML = """<!doctype html>
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 const logCountEl = document.getElementById("log-count");
-const form = document.getElementById("review-form");
-const submitBtn = document.getElementById("submit-btn");
-const urlInput = document.getElementById("pr_url");
 const bulkInput = document.getElementById("pr_urls_bulk");
 const dropZone = document.getElementById("drop-zone");
-const enqueueBulkBtn = document.getElementById("enqueue-bulk-btn");
-const queueHeader = document.getElementById("queue-header");
+const enqueueBtn = document.getElementById("enqueue-btn");
+const composerHint = document.getElementById("composer-hint");
+const queuePanel = document.getElementById("queue-panel");
 const queueLogEl = document.getElementById("queue-log");
 const queueCountEl = document.getElementById("queue-count");
 let queuePollTimer = null;
@@ -731,16 +707,17 @@ function queueStatusLabel(item) {
 }
 
 function renderQueue(data) {
-  const items = data.items || [];
+  const items = (data.items || []).filter(
+    i => i.status === "pending" || i.status === "running" || i.status === "failed"
+  );
   const active = items.some(i => i.status === "pending" || i.status === "running");
-  queueHeader.hidden = !items.length;
-  queueLogEl.hidden = !items.length;
+  queuePanel.hidden = !items.length;
   if (!items.length) {
     queueCountEl.textContent = "";
     return active;
   }
   const pendingCount = items.filter(i => i.status === "pending" || i.status === "running").length;
-  queueCountEl.textContent = pendingCount ? `${pendingCount} active` : "";
+  queueCountEl.textContent = pendingCount ? String(pendingCount) : "";
 
   queueLogEl.innerHTML = items.map(item => {
     const rowClass = item.status === "failed"
@@ -763,12 +740,12 @@ function renderQueue(data) {
       : "?";
     const label = queueStatusLabel(item);
     const time = item.status === "running" ? "Now" : (item.finished_at ? formatTime(item.finished_at) : formatTime(item.enqueued_at));
+    const err = item.error ? ` — ${item.error}` : "";
     return `
       <div class="${rowClass}">
         <span class="badge">${glyph}</span>
         <span class="path">
-          <a href="${item.pr_url}" target="_blank" rel="noopener noreferrer">${repoAndPr(item.repo_slug, item.pr_id)}</a>
-          <span class="plain" style="display:block;font-size:12px;color:var(--text-faint);margin-top:2px;">${label}${item.error ? ` — ${item.error}` : ""}</span>
+          <a href="${item.pr_url}" target="_blank" rel="noopener noreferrer">${repoAndPr(item.repo_slug, item.pr_id)}<span class="status-pill">${label}${err}</span></a>
         </span>
         <span class="time">${time}</span>
       </div>
@@ -821,47 +798,45 @@ async function enqueueReviews({ pr_urls = [], text = "" }) {
   return data;
 }
 
-async function submitEnqueue({ pr_urls = [], text = "", clearBulk = false, clearSingle = false }) {
-  if (!pr_urls.length && !text.trim()) return;
-  submitBtn.disabled = true;
-  enqueueBulkBtn.disabled = true;
+async function submitEnqueue() {
+  const text = bulkInput.value;
+  if (!text.trim()) return;
+  enqueueBtn.disabled = true;
   setStatus("Adding to queue\u2026", "");
   try {
-    const data = await enqueueReviews({ pr_urls, text });
+    const data = await enqueueReviews({ text });
     const n = (data.enqueued || []).length;
     const rejected = (data.rejected || []).length;
     if (n) {
       setStatus(
         rejected
-          ? `Queued ${n} PR${n === 1 ? "" : "s"} (${rejected} skipped).`
-          : `Queued ${n} PR${n === 1 ? "" : "s"}.`,
+          ? `Queued ${n} (${rejected} skipped)`
+          : `Queued ${n} PR${n === 1 ? "" : "s"}`,
         "ok"
       );
+      bulkInput.value = "";
     } else {
-      setStatus(rejected ? "No new PRs queued. Check URLs or duplicates." : "Nothing to queue.", "err");
+      setStatus(rejected ? "Nothing new to queue" : "Add at least one PR URL", "err");
     }
-    if (clearSingle) urlInput.value = "";
-    if (clearBulk) bulkInput.value = "";
     await loadQueue();
     if (currentPage === 1) loadReviews(1);
   } catch (error) {
     setStatus(error.message || "Could not enqueue reviews.", "err");
   } finally {
-    submitBtn.disabled = false;
-    enqueueBulkBtn.disabled = false;
+    enqueueBtn.disabled = false;
   }
 }
 
-form.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const pr_url = urlInput.value.trim();
-  if (!pr_url) return;
-  await submitEnqueue({ pr_urls: [pr_url], clearSingle: true });
+enqueueBtn.addEventListener("click", submitEnqueue);
+bulkInput.addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    submitEnqueue();
+  }
 });
-
-enqueueBulkBtn.addEventListener("click", async () => {
-  await submitEnqueue({ text: bulkInput.value, clearBulk: true });
-});
+if (!/Mac|iPhone|iPad/.test(navigator.platform)) {
+  composerHint.textContent = "Ctrl+Enter to queue";
+}
 
 function preventDefaults(event) {
   event.preventDefault();
@@ -887,10 +862,10 @@ dropZone.addEventListener("drop", async (event) => {
       /* ignore unreadable drops */
     }
   }
-  const text = textBits.join("\\n");
-  if (text.trim()) {
-    await submitEnqueue({ text });
-  }
+  const text = textBits.join("\\n").trim();
+  if (!text) return;
+  bulkInput.value = bulkInput.value.trim() ? `${bulkInput.value.trim()}\\n${text}` : text;
+  await submitEnqueue();
 });
 
 loadReviews();

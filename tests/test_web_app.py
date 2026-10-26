@@ -36,8 +36,9 @@ def test_index_serves_form_with_url_input_and_submit(tmp_path):
     client = TestClient(app)
     resp = client.get("/")
     assert resp.status_code == 200
-    assert "pr_url" in resp.text
+    assert "pr_urls_bulk" in resp.text
     assert "drop-zone" in resp.text
+    assert "Queue reviews" in resp.text
     assert "<button" in resp.text
 
 
