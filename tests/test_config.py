@@ -30,6 +30,7 @@ def test_config_defaults():
     assert config.cursor_workspace == "/app"
     assert config.cursor_model == ""
     assert config.db_path == "/data/reviewed_prs.db"
+    assert config.review_hook_secret == ""
 
 
 def test_config_project_keys_parsed_from_env(monkeypatch):
