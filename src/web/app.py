@@ -1,15 +1,17 @@
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from src.bitbucket_client import BitbucketClient
 from src.config import Config
 from src.db import count_reviews, get_provider_order, init_db, list_recent_reviews, set_provider_order
-from src.pr_url import extract_pr_urls_from_text, parse_pr_url
+from src.pr_url import parse_pr_url
 from src.review_runner import write_cursor_mcp_config, write_kiro_mcp_config, write_mcp_config
+from src.web.enqueue import enqueue_review_request
+from src.web.hook_auth import require_review_hook_secret
 from src.web.review_queue import ReviewQueue
 from src.web.review_service import execute_review
 
@@ -952,8 +954,19 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
             "total_pages": max((total + per_page - 1) // per_page, 1),
         }
 
+    @app.post("/hooks/reviews/queue")
+    async def hook_enqueue_reviews(req: QueueReviewsRequest, request: Request) -> dict:
+        require_review_hook_secret(request, config, require_configured=True)
+        return enqueue_review_request(
+            review_queue,
+            config,
+            pr_urls=req.pr_urls,
+            text=req.text,
+        )
+
     @app.post("/review")
-    async def review(req: ReviewRequest) -> dict:
+    async def review(req: ReviewRequest, request: Request) -> dict:
+        require_review_hook_secret(request, config, require_configured=False)
         try:
             repo_slug, pr_id = parse_pr_url(req.pr_url, config.bitbucket_workspace)
         except ValueError as e:
@@ -969,36 +982,14 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
         return {"items": review_queue.list_items()}
 
     @app.post("/reviews/queue")
-    async def enqueue_reviews(req: QueueReviewsRequest) -> dict:
-        now = datetime.now(timezone.utc).isoformat()
-        urls: list[str] = []
-        seen: set[str] = set()
-        rejected: list[dict] = []
-
-        for raw in req.pr_urls:
-            url = raw.strip()
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            urls.append(url)
-
-        found, parse_errors = extract_pr_urls_from_text(req.text, config.bitbucket_workspace)
-        for err in parse_errors:
-            rejected.append({"input": "", "error": err})
-        for url in found:
-            if url not in seen:
-                seen.add(url)
-                urls.append(url)
-
-        if not urls and not rejected:
-            raise HTTPException(status_code=400, detail="No PR URLs provided.")
-
-        added, enqueue_rejected = review_queue.enqueue_urls(urls, now)
-        rejected.extend(enqueue_rejected)
-        return {
-            "enqueued": [item.to_dict() for item in added],
-            "rejected": rejected,
-        }
+    async def enqueue_reviews(req: QueueReviewsRequest, request: Request) -> dict:
+        require_review_hook_secret(request, config, require_configured=False)
+        return enqueue_review_request(
+            review_queue,
+            config,
+            pr_urls=req.pr_urls,
+            text=req.text,
+        )
 
     return app
 

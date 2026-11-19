@@ -85,6 +85,23 @@ batch reviews and reviews submitted from the dashboard. A provider is only
 skipped when it reports a usage or quota limit; other failures are returned
 immediately.
 
+## Pipeline / hook (queued review)
+
+Expose the web service on a public HTTPS URL (ngrok, Cloudflare Tunnel, etc.),
+set `REVIEW_HOOK_SECRET` in `.env`, and POST from Bitbucket Pipelines:
+
+```bash
+curl -sfS -X POST "${PR_REVIEW_BOT_URL}/hooks/reviews/queue" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${PR_REVIEW_BOT_SECRET}" \
+  -d "{\"pr_urls\":[\"https://bitbucket.org/${BITBUCKET_WORKSPACE}/${BITBUCKET_REPO_SLUG}/pull-requests/${BITBUCKET_PR_ID}\"]}"
+```
+
+The same secret can be sent as `X-Review-Hook-Secret`. When `REVIEW_HOOK_SECRET`
+is set, `POST /reviews/queue` and `POST /review` also require it (so the hook
+cannot be bypassed). The localhost dashboard works without a secret when
+`REVIEW_HOOK_SECRET` is unset.
+
 ## Design
 
 See `docs/superpowers/specs/2026-09-04-bitbucket-pr-review-bot-design.md`.

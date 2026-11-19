@@ -34,6 +34,7 @@ class Config:
     cursor_workspace: str = os.getenv("CURSOR_WORKSPACE", "/app")
     cursor_model: str = os.getenv("CURSOR_MODEL", "")
     db_path: str = os.getenv("DB_PATH", "/data/reviewed_prs.db")
+    review_hook_secret: str = os.getenv("REVIEW_HOOK_SECRET", "")
 
     @property
     def bitbucket_base_url(self) -> str:
