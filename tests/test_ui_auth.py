@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -73,6 +73,20 @@ def test_user_can_enqueue_but_not_change_providers(tmp_path):
 
     denied = client.put("/config/providers", json={"providers": ["codex", "kiro", "cursor", "claude"]})
     assert denied.status_code == 403
+
+
+def test_admin_can_view_provider_login_status(tmp_path):
+    app = create_app(_config(tmp_path), client=AsyncMock())
+    client = TestClient(app)
+    _login(client, USER_PW)
+    assert client.get("/admin/provider-login-status").status_code == 403
+
+    client.post("/auth/logout")
+    _login(client, ADMIN_PW)
+    with patch("src.web.app.collect_provider_login_status", return_value=[{"provider": "claude", "logged_in": True, "summary": "claude.ai"}]):
+        resp = client.get("/admin/provider-login-status")
+    assert resp.status_code == 200
+    assert resp.json()["providers"][0]["provider"] == "claude"
 
 
 def test_admin_can_configure_providers(tmp_path):
