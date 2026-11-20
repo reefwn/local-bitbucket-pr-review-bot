@@ -111,6 +111,10 @@ provider order and queue PRs; **user** can only queue PRs. Optional
 secret or the two passwords). Pipeline hooks (`/hooks/reviews/queue`) are not
 affected.
 
+After changing `.env`, recreate the web container so it picks up new values
+(`docker compose up -d --force-recreate web`, or rebuild if the image is
+behind `main`). Use the exact password strings from `.env` (no extra spaces).
+
 ## Design
 
 See `docs/superpowers/specs/2026-09-04-bitbucket-pr-review-bot-design.md`.

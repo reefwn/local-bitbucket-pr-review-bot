@@ -38,8 +38,23 @@ def _login(client: TestClient, password: str) -> None:
 def test_auth_disabled_when_passwords_unset(tmp_path):
     app = create_app(_config(tmp_path, review_ui_admin_password="", review_ui_user_password=""), client=AsyncMock())
     client = TestClient(app)
-    assert client.get("/auth/me").json() == {"auth_required": False, "role": None}
+    assert client.get("/auth/me").json() == {
+        "auth_required": False,
+        "misconfigured": False,
+        "role": None,
+    }
     assert client.get("/reviews").status_code == 200
+
+
+def test_auth_misconfigured_when_only_one_password_set(tmp_path):
+    app = create_app(_config(tmp_path, review_ui_user_password=""), client=AsyncMock())
+    client = TestClient(app)
+    body = client.get("/auth/me").json()
+    assert body["auth_required"] is False
+    assert body["misconfigured"] is True
+
+    resp = client.post("/auth/login", json={"password": ADMIN_PW})
+    assert resp.status_code == 400
 
 
 def test_user_can_enqueue_but_not_change_providers(tmp_path):

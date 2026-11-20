@@ -18,6 +18,10 @@ def _parse_excluded_repo_slugs() -> list[str]:
     return _parse_csv_env("EXCLUDED_REPO_SLUGS")
 
 
+def _env_str(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+
 @dataclass
 class Config:
     bitbucket_email: str = os.getenv("BITBUCKET_EMAIL", "")
@@ -34,10 +38,10 @@ class Config:
     cursor_workspace: str = os.getenv("CURSOR_WORKSPACE", "/app")
     cursor_model: str = os.getenv("CURSOR_MODEL", "")
     db_path: str = os.getenv("DB_PATH", "/data/reviewed_prs.db")
-    review_hook_secret: str = os.getenv("REVIEW_HOOK_SECRET", "")
-    review_ui_admin_password: str = os.getenv("REVIEW_UI_ADMIN_PASSWORD", "")
-    review_ui_user_password: str = os.getenv("REVIEW_UI_USER_PASSWORD", "")
-    review_ui_session_key: str = os.getenv("REVIEW_UI_SESSION_KEY", "")
+    review_hook_secret: str = field(default_factory=lambda: _env_str("REVIEW_HOOK_SECRET"))
+    review_ui_admin_password: str = field(default_factory=lambda: _env_str("REVIEW_UI_ADMIN_PASSWORD"))
+    review_ui_user_password: str = field(default_factory=lambda: _env_str("REVIEW_UI_USER_PASSWORD"))
+    review_ui_session_key: str = field(default_factory=lambda: _env_str("REVIEW_UI_SESSION_KEY"))
 
     @property
     def bitbucket_base_url(self) -> str:

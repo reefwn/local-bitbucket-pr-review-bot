@@ -20,6 +20,7 @@ from src.web.ui_auth import (
     session_role_from_request,
     set_session_cookie,
     ui_auth_enabled,
+    ui_auth_misconfigured,
 )
 from src.web.review_queue import ReviewQueue
 from src.web.review_service import execute_review
@@ -120,6 +121,11 @@ _FORM_HTML = """<!doctype html>
     align-items: center;
     justify-content: center;
     padding: 24px;
+  }
+
+  .login-gate[hidden],
+  #app-shell[hidden] {
+    display: none !important;
   }
 
   .login-card {
@@ -718,6 +724,13 @@ async function initAuth() {
   const data = await res.json();
   authRequired = Boolean(data.auth_required);
   currentRole = data.role || null;
+  if (data.misconfigured) {
+    loginGate.hidden = false;
+    appShell.hidden = true;
+    loginError.textContent =
+      "Set both REVIEW_UI_ADMIN_PASSWORD and REVIEW_UI_USER_PASSWORD in .env, then recreate the web container.";
+    return false;
+  }
   if (authRequired && !currentRole) {
     loginGate.hidden = false;
     appShell.hidden = true;
@@ -1125,21 +1138,25 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
     async def auth_me(request: Request) -> dict:
         enabled = ui_auth_enabled(config)
         role = session_role_from_request(request, config) if enabled else None
-        return {"auth_required": enabled, "role": role}
+        return {
+            "auth_required": enabled,
+            "misconfigured": ui_auth_misconfigured(config),
+            "role": role,
+        }
 
     @app.post("/auth/login")
-    async def auth_login(req: LoginRequest, response: Response) -> dict:
+    async def auth_login(req: LoginRequest, request: Request, response: Response) -> dict:
         if not ui_auth_enabled(config):
             raise HTTPException(status_code=400, detail="UI authentication is not configured.")
-        role = authenticate_password(config, req.password)
+        role = authenticate_password(config, req.password.strip())
         if not role:
             raise HTTPException(status_code=401, detail="Invalid password.")
-        set_session_cookie(response, config, role)
+        set_session_cookie(response, config, role, request)
         return {"role": role}
 
     @app.post("/auth/logout")
-    async def auth_logout(response: Response) -> dict:
-        clear_session_cookie(response)
+    async def auth_logout(request: Request, response: Response) -> dict:
+        clear_session_cookie(response, request)
         return {"status": "ok"}
 
     @app.get("/config/providers")
