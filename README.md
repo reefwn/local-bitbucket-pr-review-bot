@@ -111,9 +111,10 @@ provider order and queue PRs; **user** can only queue PRs. Optional
 secret or the two passwords). Pipeline hooks (`/hooks/reviews/queue`) are not
 affected.
 
-Signed-in **admins** see an **LLM login status** panel on the dashboard (runs each
-provider CLI’s status command inside the `web` container). Refresh after
-`docker compose exec web agent login` or other one-time logins.
+Signed-in **admins** open **Settings** (gear) for **LLM login status** and **LLM
+provider order**. Login status runs each provider CLI’s status command inside
+the `web` container — refresh after `docker compose exec web agent login` or
+other one-time logins.
 
 After changing `.env`, recreate the web container so it picks up new values
 (`docker compose up -d --force-recreate web`, or rebuild if the image is
