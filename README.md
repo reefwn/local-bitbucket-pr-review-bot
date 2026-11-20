@@ -99,8 +99,8 @@ curl -sfS -X POST "${PR_REVIEW_BOT_URL}/hooks/reviews/queue" \
 
 The same secret can be sent as `X-Review-Hook-Secret`. When `REVIEW_HOOK_SECRET`
 is set, `POST /reviews/queue` and `POST /review` also require it (so the hook
-cannot be bypassed). The localhost dashboard works without a secret when
-`REVIEW_HOOK_SECRET` is unset.
+cannot be bypassed). The dashboard sends the same secret on enqueue requests
+when `REVIEW_HOOK_SECRET` is set (included in the page for same-origin use).
 
 ## Design
 

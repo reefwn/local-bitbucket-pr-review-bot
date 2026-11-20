@@ -1,3 +1,4 @@
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -507,6 +508,14 @@ _FORM_HTML = """<!doctype html>
 </div>
 
 <script>
+const REVIEW_HOOK_SECRET = __REVIEW_HOOK_SECRET_JSON__;
+function reviewHookHeaders(extraHeaders = {}) {
+  const headers = { ...extraHeaders };
+  if (REVIEW_HOOK_SECRET) {
+    headers["X-Review-Hook-Secret"] = REVIEW_HOOK_SECRET;
+  }
+  return headers;
+}
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 const logCountEl = document.getElementById("log-count");
@@ -790,7 +799,7 @@ function setStatus(message, kind) {
 async function enqueueReviews({ pr_urls = [], text = "" }) {
   const res = await fetch("/reviews/queue", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: reviewHookHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ pr_urls, text }),
   });
   const data = await res.json();
@@ -881,6 +890,10 @@ setInterval(() => {
 """
 
 
+def render_form_html(review_hook_secret: str) -> str:
+    return _FORM_HTML.replace("__REVIEW_HOOK_SECRET_JSON__", json.dumps(review_hook_secret))
+
+
 class ReviewRequest(BaseModel):
     pr_url: str
 
@@ -916,7 +929,7 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> str:
-        return _FORM_HTML
+        return render_form_html(config.review_hook_secret)
 
     @app.get("/health")
     async def health() -> dict:

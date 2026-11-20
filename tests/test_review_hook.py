@@ -1,3 +1,4 @@
+import json
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -80,6 +81,16 @@ def test_reviews_queue_requires_secret_when_configured(tmp_path):
         headers={"X-Review-Hook-Secret": HOOK_SECRET},
     )
     assert ok.status_code == 200
+
+
+def test_dashboard_html_includes_hook_secret_for_enqueue(tmp_path):
+    secret = "dashboard-hook-secret"
+    app = create_app(_config(tmp_path, review_hook_secret=secret), client=AsyncMock())
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert f"const REVIEW_HOOK_SECRET = {json.dumps(secret)};" in resp.text
+    assert "reviewHookHeaders" in resp.text
 
 
 def test_reviews_queue_unchanged_when_secret_unset(tmp_path):
