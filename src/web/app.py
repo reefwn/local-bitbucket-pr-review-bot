@@ -100,12 +100,26 @@ _FORM_HTML = """<!doctype html>
   }
 
   .role-badge {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-dim);
-    background: var(--bg);
-    padding: 6px 10px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    padding: 8px 14px;
     border-radius: 999px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+
+  .role-badge.role-admin {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: rgba(76, 141, 255, 0.35);
+  }
+
+  .role-badge.role-user {
+    background: var(--pending-soft);
+    color: var(--pending);
+    border-color: rgba(217, 119, 6, 0.35);
   }
 
   .logout-button {
@@ -221,6 +235,7 @@ _FORM_HTML = """<!doctype html>
     padding: 0;
   }
   .settings-button:hover { color: var(--accent); filter: none; }
+  .settings-button[hidden] { display: none !important; }
   .settings-button svg { width: 19px; height: 19px; }
 
   .status-line {
@@ -716,22 +731,10 @@ _FORM_HTML = """<!doctype html>
     <h1>Settings</h1>
   </div>
   <nav class="config-nav" aria-label="Settings sections">
-    <button type="button" id="config-tab-login" class="active" data-config-tab="login">LLM login status</button>
-    <button type="button" id="config-tab-order" data-config-tab="order">LLM provider order</button>
+    <button type="button" id="config-tab-order" class="active" data-config-tab="order">LLM provider order</button>
+    <button type="button" id="config-tab-login" data-config-tab="login">LLM login status</button>
   </nav>
-  <section class="card config-panel" id="config-panel-login">
-    <div class="log-header">
-      <h2>LLM login status</h2>
-    </div>
-    <p class="config-panel-intro">Session state for each review CLI in this container (refresh after one-time login).</p>
-    <div class="panel-toolbar">
-      <button type="button" id="refresh-provider-auth">Refresh</button>
-    </div>
-    <ul class="auth-status-list" id="provider-auth-list">
-      <li class="empty">Loading&hellip;</li>
-    </ul>
-  </section>
-  <section class="card config-panel" id="config-panel-order" hidden>
+  <section class="card config-panel" id="config-panel-order">
     <div class="log-header">
       <h2>LLM provider order</h2>
     </div>
@@ -742,6 +745,18 @@ _FORM_HTML = """<!doctype html>
       <button type="button" id="save-provider-settings">Save order</button>
     </div>
     <p id="config-status" class="status-line" aria-live="polite"></p>
+  </section>
+  <section class="card config-panel" id="config-panel-login" hidden>
+    <div class="log-header">
+      <h2>LLM login status</h2>
+    </div>
+    <p class="config-panel-intro">Session state for each review CLI in this container (refresh after one-time login).</p>
+    <div class="panel-toolbar">
+      <button type="button" id="refresh-provider-auth">Refresh</button>
+    </div>
+    <ul class="auth-status-list" id="provider-auth-list">
+      <li class="empty">Loading&hellip;</li>
+    </ul>
   </section>
 </main>
 </div>
@@ -850,16 +865,19 @@ function renderProviderList() {
 }
 
 function applyAuthUi() {
+  const isAdmin = authRequired && currentRole === "admin";
+  providerSettingsBtn.hidden = !isAdmin;
   if (!authRequired) {
-    providerSettingsBtn.hidden = false;
     logoutBtn.hidden = true;
     roleBadge.hidden = true;
+    roleBadge.className = "role-badge";
     return;
   }
   logoutBtn.hidden = false;
   roleBadge.hidden = false;
-  roleBadge.textContent = currentRole === "admin" ? "Admin" : "User";
-  providerSettingsBtn.hidden = currentRole !== "admin";
+  const isUserAdmin = currentRole === "admin";
+  roleBadge.textContent = isUserAdmin ? "Admin" : "User";
+  roleBadge.className = isUserAdmin ? "role-badge role-admin" : "role-badge role-user";
 }
 
 function renderProviderAuthList(rows) {
@@ -984,7 +1002,7 @@ async function loadProviderOrder() {
   }
 }
 
-function openAdminConfig(tab = "login") {
+function openAdminConfig(tab = "order") {
   dashboardView.hidden = true;
   adminConfigView.hidden = false;
   switchConfigTab(tab);
@@ -999,7 +1017,7 @@ function closeAdminConfig() {
   providerSettingsBtn.focus();
 }
 
-providerSettingsBtn.addEventListener("click", () => openAdminConfig("login"));
+providerSettingsBtn.addEventListener("click", () => openAdminConfig("order"));
 closeAdminConfigBtn.addEventListener("click", closeAdminConfig);
 cancelProviderSettingsBtn.addEventListener("click", closeAdminConfig);
 configTabLogin.addEventListener("click", () => switchConfigTab("login"));
