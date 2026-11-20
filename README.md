@@ -102,6 +102,15 @@ is set, `POST /reviews/queue` and `POST /review` also require it (so the hook
 cannot be bypassed). The dashboard sends the same secret on enqueue requests
 when `REVIEW_HOOK_SECRET` is set (included in the page for same-origin use).
 
+## Dashboard passwords
+
+Set both `REVIEW_UI_ADMIN_PASSWORD` and `REVIEW_UI_USER_PASSWORD` in `.env` to
+require a password before using the dashboard. **Admin** can change review
+provider order and queue PRs; **user** can only queue PRs. Optional
+`REVIEW_UI_SESSION_KEY` signs login cookies (otherwise derived from the hook
+secret or the two passwords). Pipeline hooks (`/hooks/reviews/queue`) are not
+affected.
+
 ## Design
 
 See `docs/superpowers/specs/2026-09-04-bitbucket-pr-review-bot-design.md`.

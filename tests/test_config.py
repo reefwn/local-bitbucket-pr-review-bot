@@ -31,6 +31,9 @@ def test_config_defaults():
     assert config.cursor_model == ""
     assert config.db_path == "/data/reviewed_prs.db"
     assert config.review_hook_secret == ""
+    assert config.review_ui_admin_password == ""
+    assert config.review_ui_user_password == ""
+    assert config.review_ui_session_key == ""
 
 
 def test_config_project_keys_parsed_from_env(monkeypatch):

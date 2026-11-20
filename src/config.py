@@ -35,6 +35,9 @@ class Config:
     cursor_model: str = os.getenv("CURSOR_MODEL", "")
     db_path: str = os.getenv("DB_PATH", "/data/reviewed_prs.db")
     review_hook_secret: str = os.getenv("REVIEW_HOOK_SECRET", "")
+    review_ui_admin_password: str = os.getenv("REVIEW_UI_ADMIN_PASSWORD", "")
+    review_ui_user_password: str = os.getenv("REVIEW_UI_USER_PASSWORD", "")
+    review_ui_session_key: str = os.getenv("REVIEW_UI_SESSION_KEY", "")
 
     @property
     def bitbucket_base_url(self) -> str:
