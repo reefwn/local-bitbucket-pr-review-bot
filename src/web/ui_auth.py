@@ -21,6 +21,13 @@ def ui_auth_enabled(config: "Config") -> bool:
     return bool(config.review_ui_admin_password and config.review_ui_user_password)
 
 
+def ui_auth_misconfigured(config: "Config") -> bool:
+    """Exactly one UI password is set — auth stays off until both are configured."""
+    admin = bool(config.review_ui_admin_password)
+    user = bool(config.review_ui_user_password)
+    return admin != user
+
+
 def session_signing_key(config: "Config") -> str:
     if config.review_ui_session_key:
         return config.review_ui_session_key
@@ -86,19 +93,29 @@ def session_role_from_request(request: Request, config: "Config") -> UiRole | No
     return _parse_session_token(config, token)
 
 
-def set_session_cookie(response: Response, config: "Config", role: UiRole) -> None:
+def _cookie_secure(request: Request) -> bool:
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    if forwarded == "https":
+        return True
+    return request.url.scheme == "https"
+
+
+def set_session_cookie(response: Response, config: "Config", role: UiRole, request: Request) -> None:
+    secure = _cookie_secure(request)
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=create_session_token(config, role),
         httponly=True,
         samesite="lax",
+        secure=secure,
         max_age=SESSION_TTL_SECONDS,
         path="/",
     )
 
 
-def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE_NAME, path="/")
+def clear_session_cookie(response: Response, request: Request) -> None:
+    secure = _cookie_secure(request)
+    response.delete_cookie(SESSION_COOKIE_NAME, path="/", secure=secure)
 
 
 def require_ui_role(request: Request, config: "Config", minimum: UiRole) -> UiRole:
