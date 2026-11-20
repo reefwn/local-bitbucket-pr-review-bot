@@ -524,38 +524,92 @@ _FORM_HTML = """<!doctype html>
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 10;
-    display: grid;
-    place-items: center;
-    padding: 20px;
-    background: rgba(15, 23, 42, 0.42);
-    backdrop-filter: blur(5px);
+  #admin-config-view[hidden] { display: none; }
+
+  .config-top {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
   }
-  .modal-backdrop[hidden] { display: none; }
-  .modal {
-    width: min(100%, 460px);
+
+  .config-back {
     background: var(--card);
-    border-radius: 22px;
-    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
-    padding: 24px;
-  }
-  .modal-header { display: flex; gap: 16px; justify-content: space-between; align-items: flex-start; }
-  .modal h2 { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
-  .modal p { margin: 5px 0 0; color: var(--text-dim); font-size: 14px; }
-  .close-button {
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
     color: var(--text-dim);
-    background: var(--bg);
-    font-size: 21px;
-    line-height: 1;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 8px 14px;
+    box-shadow: var(--shadow);
   }
+
+  .config-back:hover { color: var(--accent); filter: none; }
+
+  .config-top h1 {
+    margin: 0;
+    font-size: 24px;
+  }
+
+  .config-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .config-nav button {
+    background: var(--card);
+    color: var(--text-dim);
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 16px;
+    box-shadow: var(--shadow);
+  }
+
+  .config-nav button.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .config-nav button:hover:not(.active) {
+    color: var(--text);
+    filter: none;
+  }
+
+  .config-panel {
+    margin-bottom: 28px;
+  }
+
+  .config-panel[hidden] { display: none; }
+
+  .config-panel-intro {
+    margin: 0 0 18px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .config-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 9px;
+    margin-top: 18px;
+  }
+
+  .config-footer .cancel-button {
+    background: var(--bg);
+    color: var(--text-dim);
+  }
+
+  .config-footer .cancel-button:hover { color: var(--text); filter: none; }
+
+  #config-status {
+    margin: 12px 0 0;
+    font-size: 13px;
+    min-height: 1.2em;
+    text-align: right;
+  }
+
+  #config-status.ok { color: var(--ok); }
+  #config-status.err { color: var(--err); }
   .provider-list { list-style: none; margin: 22px 0; padding: 0; display: grid; gap: 8px; }
   .provider-item {
     display: grid;
@@ -584,9 +638,6 @@ _FORM_HTML = """<!doctype html>
     font-size: 16px;
   }
   .reorder-actions button:hover { color: var(--accent); filter: none; }
-  .modal-footer { display: flex; justify-content: flex-end; gap: 9px; }
-  .modal-footer .cancel-button { background: var(--bg); color: var(--text-dim); }
-  .modal-footer .cancel-button:hover { color: var(--text); filter: none; }
 </style>
 </head>
 <body>
@@ -600,6 +651,7 @@ _FORM_HTML = """<!doctype html>
   </section>
 </div>
 <div id="app-shell" hidden>
+<div id="dashboard-view">
 <main>
   <div class="page-heading">
     <div>
@@ -608,7 +660,7 @@ _FORM_HTML = """<!doctype html>
     </div>
     <div class="header-actions">
       <span class="role-badge" id="role-badge" hidden></span>
-      <button type="button" class="settings-button" id="provider-settings" aria-label="Review provider settings" title="Review provider settings">
+      <button type="button" class="settings-button" id="provider-settings" aria-label="Settings" title="Settings">
         <svg class="lucide lucide-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
           <circle cx="12" cy="12" r="3"></circle>
@@ -617,18 +669,6 @@ _FORM_HTML = """<!doctype html>
       <button type="button" class="logout-button" id="logout-btn" hidden>Sign out</button>
     </div>
   </div>
-
-  <section class="panel" id="provider-auth-panel" hidden>
-    <div class="log-header">
-      <h2>LLM login status</h2>
-    </div>
-    <div class="panel-toolbar">
-      <button type="button" id="refresh-provider-auth">Refresh</button>
-    </div>
-    <ul class="auth-status-list" id="provider-auth-list">
-      <li class="empty">Loading&hellip;</li>
-    </ul>
-  </section>
 
   <div class="card composer" id="drop-zone">
     <label class="composer-label" for="pr_urls_bulk">Pull request URLs</label>
@@ -667,22 +707,43 @@ _FORM_HTML = """<!doctype html>
     <button type="button" id="next-page">Older &rarr;</button>
   </div>
 </main>
+</div>
 
-<div class="modal-backdrop" id="provider-modal" hidden>
-  <section class="modal" role="dialog" aria-modal="true" aria-labelledby="provider-modal-title">
-    <div class="modal-header">
-      <div>
-        <h2 id="provider-modal-title">Review providers</h2>
-        <p>New reviews try providers in this order. Move one to change its priority.</p>
-      </div>
-      <button type="button" class="close-button" id="close-provider-modal" aria-label="Close provider settings">&times;</button>
+<div id="admin-config-view" hidden>
+<main>
+  <div class="config-top">
+    <button type="button" class="config-back" id="close-admin-config">&larr; Back</button>
+    <h1>Settings</h1>
+  </div>
+  <nav class="config-nav" aria-label="Settings sections">
+    <button type="button" id="config-tab-login" class="active" data-config-tab="login">LLM login status</button>
+    <button type="button" id="config-tab-order" data-config-tab="order">LLM provider order</button>
+  </nav>
+  <section class="card config-panel" id="config-panel-login">
+    <div class="log-header">
+      <h2>LLM login status</h2>
     </div>
+    <p class="config-panel-intro">Session state for each review CLI in this container (refresh after one-time login).</p>
+    <div class="panel-toolbar">
+      <button type="button" id="refresh-provider-auth">Refresh</button>
+    </div>
+    <ul class="auth-status-list" id="provider-auth-list">
+      <li class="empty">Loading&hellip;</li>
+    </ul>
+  </section>
+  <section class="card config-panel" id="config-panel-order" hidden>
+    <div class="log-header">
+      <h2>LLM provider order</h2>
+    </div>
+    <p class="config-panel-intro">New reviews try providers in this order. Move one to change its priority.</p>
     <ol class="provider-list" id="provider-list"></ol>
-    <div class="modal-footer">
+    <div class="config-footer">
       <button type="button" class="cancel-button" id="cancel-provider-settings">Cancel</button>
       <button type="button" id="save-provider-settings">Save order</button>
     </div>
+    <p id="config-status" class="status-line" aria-live="polite"></p>
   </section>
+</main>
 </div>
 </div>
 
@@ -708,9 +769,16 @@ const loginSubmit = document.getElementById("login-submit");
 const loginError = document.getElementById("login-error");
 const logoutBtn = document.getElementById("logout-btn");
 const roleBadge = document.getElementById("role-badge");
-const providerAuthPanel = document.getElementById("provider-auth-panel");
+const dashboardView = document.getElementById("dashboard-view");
+const adminConfigView = document.getElementById("admin-config-view");
 const providerAuthList = document.getElementById("provider-auth-list");
 const refreshProviderAuthBtn = document.getElementById("refresh-provider-auth");
+const configTabLogin = document.getElementById("config-tab-login");
+const configTabOrder = document.getElementById("config-tab-order");
+const configPanelLogin = document.getElementById("config-panel-login");
+const configPanelOrder = document.getElementById("config-panel-order");
+const closeAdminConfigBtn = document.getElementById("close-admin-config");
+const configStatusEl = document.getElementById("config-status");
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 const logCountEl = document.getElementById("log-count");
@@ -727,9 +795,7 @@ const pagerLabelEl = document.getElementById("pager-label");
 const prevPageBtn = document.getElementById("prev-page");
 const nextPageBtn = document.getElementById("next-page");
 const providerSettingsBtn = document.getElementById("provider-settings");
-const providerModal = document.getElementById("provider-modal");
 const providerList = document.getElementById("provider-list");
-const closeProviderModalBtn = document.getElementById("close-provider-modal");
 const cancelProviderSettingsBtn = document.getElementById("cancel-provider-settings");
 const saveProviderSettingsBtn = document.getElementById("save-provider-settings");
 
@@ -784,19 +850,16 @@ function renderProviderList() {
 }
 
 function applyAuthUi() {
-  const isAdmin = !authRequired || currentRole === "admin";
   if (!authRequired) {
     providerSettingsBtn.hidden = false;
     logoutBtn.hidden = true;
     roleBadge.hidden = true;
-    providerAuthPanel.hidden = !isAdmin;
     return;
   }
   logoutBtn.hidden = false;
   roleBadge.hidden = false;
   roleBadge.textContent = currentRole === "admin" ? "Admin" : "User";
   providerSettingsBtn.hidden = currentRole !== "admin";
-  providerAuthPanel.hidden = currentRole !== "admin";
 }
 
 function renderProviderAuthList(rows) {
@@ -818,7 +881,7 @@ function renderProviderAuthList(rows) {
 }
 
 async function loadProviderAuthStatus() {
-  if (providerAuthPanel.hidden) return;
+  if (adminConfigView.hidden || configPanelLogin.hidden) return;
   providerAuthList.innerHTML = '<li class="empty">Loading&hellip;</li>';
   try {
     const res = await apiFetch("/admin/provider-login-status");
@@ -871,7 +934,6 @@ async function submitLogin() {
     appShell.hidden = false;
     loadReviews();
     loadQueue();
-    loadProviderAuthStatus();
   } catch (error) {
     loginError.textContent = error.message || "Could not sign in.";
   } finally {
@@ -888,36 +950,63 @@ refreshProviderAuthBtn.addEventListener("click", loadProviderAuthStatus);
 logoutBtn.addEventListener("click", async () => {
   await apiFetch("/auth/logout", { method: "POST" });
   currentRole = null;
+  closeAdminConfig();
   loginGate.hidden = false;
   appShell.hidden = true;
   loginPassword.focus();
 });
 
-async function openProviderSettings() {
-  try {
-    const res = await apiFetch("/config/providers");
-    const data = await res.json();
-    if (!res.ok) throw new Error();
-    providerOrder = data.providers;
-    renderProviderList();
-    providerModal.hidden = false;
-    closeProviderModalBtn.focus();
-  } catch {
-    statusEl.textContent = "Could not load provider settings.";
-    statusEl.className = "status-line err";
+function switchConfigTab(tab) {
+  const isLogin = tab === "login";
+  configTabLogin.classList.toggle("active", isLogin);
+  configTabOrder.classList.toggle("active", !isLogin);
+  configPanelLogin.hidden = !isLogin;
+  configPanelOrder.hidden = isLogin;
+  if (isLogin) {
+    loadProviderAuthStatus();
+  } else {
+    loadProviderOrder();
   }
 }
 
-function closeProviderSettings() {
-  providerModal.hidden = true;
+async function loadProviderOrder() {
+  configStatusEl.textContent = "";
+  configStatusEl.className = "status-line";
+  try {
+    const res = await apiFetch("/config/providers");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not load provider settings.");
+    providerOrder = data.providers;
+    renderProviderList();
+  } catch (error) {
+    configStatusEl.textContent = error.message || "Could not load provider settings.";
+    configStatusEl.className = "status-line err";
+  }
+}
+
+function openAdminConfig(tab = "login") {
+  dashboardView.hidden = true;
+  adminConfigView.hidden = false;
+  switchConfigTab(tab);
+  closeAdminConfigBtn.focus();
+}
+
+function closeAdminConfig() {
+  adminConfigView.hidden = true;
+  dashboardView.hidden = false;
+  configStatusEl.textContent = "";
+  configStatusEl.className = "status-line";
   providerSettingsBtn.focus();
 }
 
-providerSettingsBtn.addEventListener("click", openProviderSettings);
-closeProviderModalBtn.addEventListener("click", closeProviderSettings);
-cancelProviderSettingsBtn.addEventListener("click", closeProviderSettings);
-providerModal.addEventListener("click", event => { if (event.target === providerModal) closeProviderSettings(); });
-document.addEventListener("keydown", event => { if (event.key === "Escape" && !providerModal.hidden) closeProviderSettings(); });
+providerSettingsBtn.addEventListener("click", () => openAdminConfig("login"));
+closeAdminConfigBtn.addEventListener("click", closeAdminConfig);
+cancelProviderSettingsBtn.addEventListener("click", closeAdminConfig);
+configTabLogin.addEventListener("click", () => switchConfigTab("login"));
+configTabOrder.addEventListener("click", () => switchConfigTab("order"));
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !adminConfigView.hidden) closeAdminConfig();
+});
 saveProviderSettingsBtn.addEventListener("click", async () => {
   saveProviderSettingsBtn.disabled = true;
   try {
@@ -929,12 +1018,11 @@ saveProviderSettingsBtn.addEventListener("click", async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Could not save provider settings.");
     providerOrder = data.providers;
-    closeProviderSettings();
-    statusEl.textContent = `Provider order saved: ${providerOrder.map(providerLabel).join(", ")}.`;
-    statusEl.className = "status-line ok";
+    configStatusEl.textContent = `Saved: ${providerOrder.map(providerLabel).join(", ")}.`;
+    configStatusEl.className = "status-line ok";
   } catch (error) {
-    statusEl.textContent = error.message || "Could not save provider settings.";
-    statusEl.className = "status-line err";
+    configStatusEl.textContent = error.message || "Could not save provider settings.";
+    configStatusEl.className = "status-line err";
   } finally {
     saveProviderSettingsBtn.disabled = false;
   }
@@ -1189,7 +1277,6 @@ dropZone.addEventListener("drop", async (event) => {
   if (!ready) return;
   loadReviews();
   loadQueue();
-  loadProviderAuthStatus();
   setInterval(() => {
     if (currentPage === 1) loadReviews(1);
   }, 15000);

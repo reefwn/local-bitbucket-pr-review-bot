@@ -42,12 +42,14 @@ def test_index_serves_form_with_url_input_and_submit(tmp_path):
     assert "<button" in resp.text
 
 
-def test_index_serves_provider_settings_modal(tmp_path):
+def test_index_serves_admin_settings_view(tmp_path):
     app = create_app(_config(tmp_path), client=AsyncMock())
     client = TestClient(app)
     resp = client.get("/")
-    assert "provider-modal" in resp.text
-    assert 'aria-label="Review provider settings"' in resp.text
+    assert "admin-config-view" in resp.text
+    assert "config-tab-login" in resp.text
+    assert "config-tab-order" in resp.text
+    assert 'aria-label="Settings"' in resp.text
 
 
 def test_provider_config_returns_default_and_persists_update(tmp_path):
