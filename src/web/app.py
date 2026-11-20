@@ -2,7 +2,7 @@ import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -13,6 +13,14 @@ from src.pr_url import parse_pr_url
 from src.review_runner import write_cursor_mcp_config, write_kiro_mcp_config, write_mcp_config
 from src.web.enqueue import enqueue_review_request
 from src.web.hook_auth import require_review_hook_secret
+from src.web.ui_auth import (
+    authenticate_password,
+    clear_session_cookie,
+    require_ui_role,
+    session_role_from_request,
+    set_session_cookie,
+    ui_auth_enabled,
+)
 from src.web.review_queue import ReviewQueue
 from src.web.review_service import execute_review
 
@@ -79,6 +87,82 @@ _FORM_HTML = """<!doctype html>
     align-items: flex-start;
     justify-content: space-between;
     gap: 20px;
+  }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .role-badge {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: var(--bg);
+    padding: 6px 10px;
+    border-radius: 999px;
+  }
+
+  .logout-button {
+    background: var(--bg);
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .logout-button:hover { color: var(--text); filter: none; }
+
+  .login-gate {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .login-card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--card);
+    border-radius: 24px;
+    box-shadow: var(--shadow);
+    padding: 28px 24px;
+  }
+
+  .login-card h2 {
+    margin: 0 0 8px;
+    font-size: 20px;
+  }
+
+  .login-card p {
+    margin: 0 0 20px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+
+  .login-card input {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    font-size: 15px;
+    margin-bottom: 12px;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  .login-card input:focus {
+    outline: 2px solid var(--accent-soft);
+    border-color: var(--accent);
+  }
+
+  .login-error {
+    color: var(--err);
+    font-size: 13px;
+    min-height: 1.2em;
+    margin-bottom: 8px;
   }
 
   .sub {
@@ -438,18 +522,32 @@ _FORM_HTML = """<!doctype html>
 </style>
 </head>
 <body>
+<div id="login-gate" class="login-gate" hidden>
+  <section class="login-card" aria-labelledby="login-title">
+    <h2 id="login-title">Sign in</h2>
+    <p>Enter your dashboard password to queue reviews or manage provider settings.</p>
+    <p class="login-error" id="login-error" aria-live="polite"></p>
+    <input type="password" id="login-password" autocomplete="current-password" placeholder="Password">
+    <button type="button" id="login-submit" style="width:100%">Continue</button>
+  </section>
+</div>
+<div id="app-shell" hidden>
 <main>
   <div class="page-heading">
     <div>
       <h1>PR Review</h1>
       <p class="sub">Add Bitbucket PR links to the queue; reviews run one at a time.</p>
     </div>
-    <button type="button" class="settings-button" id="provider-settings" aria-label="Review provider settings" title="Review provider settings">
-      <svg class="lucide lucide-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
-        <circle cx="12" cy="12" r="3"></circle>
-      </svg>
-    </button>
+    <div class="header-actions">
+      <span class="role-badge" id="role-badge" hidden></span>
+      <button type="button" class="settings-button" id="provider-settings" aria-label="Review provider settings" title="Review provider settings">
+        <svg class="lucide lucide-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.51a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg>
+      </button>
+      <button type="button" class="logout-button" id="logout-btn" hidden>Sign out</button>
+    </div>
   </div>
 
   <div class="card composer" id="drop-zone">
@@ -506,6 +604,7 @@ _FORM_HTML = """<!doctype html>
     </div>
   </section>
 </div>
+</div>
 
 <script>
 const REVIEW_HOOK_SECRET = __REVIEW_HOOK_SECRET_JSON__;
@@ -516,6 +615,19 @@ function reviewHookHeaders(extraHeaders = {}) {
   }
   return headers;
 }
+async function apiFetch(url, options = {}) {
+  const headers = reviewHookHeaders({ ...(options.headers || {}) });
+  return fetch(url, { credentials: "same-origin", ...options, headers });
+}
+let authRequired = false;
+let currentRole = null;
+const loginGate = document.getElementById("login-gate");
+const appShell = document.getElementById("app-shell");
+const loginPassword = document.getElementById("login-password");
+const loginSubmit = document.getElementById("login-submit");
+const loginError = document.getElementById("login-error");
+const logoutBtn = document.getElementById("logout-btn");
+const roleBadge = document.getElementById("role-badge");
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 const logCountEl = document.getElementById("log-count");
@@ -588,9 +700,75 @@ function renderProviderList() {
   });
 }
 
+function applyAuthUi() {
+  if (!authRequired) {
+    providerSettingsBtn.hidden = false;
+    logoutBtn.hidden = true;
+    roleBadge.hidden = true;
+    return;
+  }
+  logoutBtn.hidden = false;
+  roleBadge.hidden = false;
+  roleBadge.textContent = currentRole === "admin" ? "Admin" : "User";
+  providerSettingsBtn.hidden = currentRole !== "admin";
+}
+
+async function initAuth() {
+  const res = await apiFetch("/auth/me");
+  const data = await res.json();
+  authRequired = Boolean(data.auth_required);
+  currentRole = data.role || null;
+  if (authRequired && !currentRole) {
+    loginGate.hidden = false;
+    appShell.hidden = true;
+    return false;
+  }
+  applyAuthUi();
+  loginGate.hidden = true;
+  appShell.hidden = false;
+  return true;
+}
+
+async function submitLogin() {
+  loginError.textContent = "";
+  loginSubmit.disabled = true;
+  try {
+    const res = await apiFetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: loginPassword.value }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not sign in.");
+    currentRole = data.role;
+    loginPassword.value = "";
+    applyAuthUi();
+    loginGate.hidden = true;
+    appShell.hidden = false;
+    loadReviews();
+    loadQueue();
+  } catch (error) {
+    loginError.textContent = error.message || "Could not sign in.";
+  } finally {
+    loginSubmit.disabled = false;
+  }
+}
+
+loginSubmit.addEventListener("click", submitLogin);
+loginPassword.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") submitLogin();
+});
+logoutBtn.addEventListener("click", async () => {
+  await apiFetch("/auth/logout", { method: "POST" });
+  currentRole = null;
+  loginGate.hidden = false;
+  appShell.hidden = true;
+  loginPassword.focus();
+});
+
 async function openProviderSettings() {
   try {
-    const res = await fetch("/config/providers");
+    const res = await apiFetch("/config/providers");
     const data = await res.json();
     if (!res.ok) throw new Error();
     providerOrder = data.providers;
@@ -616,7 +794,7 @@ document.addEventListener("keydown", event => { if (event.key === "Escape" && !p
 saveProviderSettingsBtn.addEventListener("click", async () => {
   saveProviderSettingsBtn.disabled = true;
   try {
-    const res = await fetch("/config/providers", {
+    const res = await apiFetch("/config/providers", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ providers: providerOrder }),
@@ -690,7 +868,7 @@ function renderLog(data) {
 
 async function loadReviews(page = currentPage) {
   try {
-    const res = await fetch(`/reviews?page=${page}&per_page=${PER_PAGE}`);
+    const res = await apiFetch(`/reviews?page=${page}&per_page=${PER_PAGE}`);
     const data = await res.json();
     currentPage = data.page || page;
     renderLog(data);
@@ -767,7 +945,7 @@ function renderQueue(data) {
 
 async function loadQueue() {
   try {
-    const res = await fetch("/reviews/queue");
+    const res = await apiFetch("/reviews/queue");
     const data = await res.json();
     const active = renderQueue(data);
     if (active) {
@@ -797,9 +975,9 @@ function setStatus(message, kind) {
 }
 
 async function enqueueReviews({ pr_urls = [], text = "" }) {
-  const res = await fetch("/reviews/queue", {
+  const res = await apiFetch("/reviews/queue", {
     method: "POST",
-    headers: reviewHookHeaders({ "Content-Type": "application/json" }),
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ pr_urls, text }),
   });
   const data = await res.json();
@@ -879,11 +1057,15 @@ dropZone.addEventListener("drop", async (event) => {
   await submitEnqueue();
 });
 
-loadReviews();
-loadQueue();
-setInterval(() => {
-  if (currentPage === 1) loadReviews(1);
-}, 15000);
+(async function initApp() {
+  const ready = await initAuth();
+  if (!ready) return;
+  loadReviews();
+  loadQueue();
+  setInterval(() => {
+    if (currentPage === 1) loadReviews(1);
+  }, 15000);
+})();
 </script>
 </body>
 </html>
@@ -905,6 +1087,10 @@ class QueueReviewsRequest(BaseModel):
 
 class ProviderOrderRequest(BaseModel):
     providers: list[str]
+
+
+class LoginRequest(BaseModel):
+    password: str
 
 
 def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI:
@@ -935,12 +1121,35 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
     async def health() -> dict:
         return {"status": "ok"}
 
+    @app.get("/auth/me")
+    async def auth_me(request: Request) -> dict:
+        enabled = ui_auth_enabled(config)
+        role = session_role_from_request(request, config) if enabled else None
+        return {"auth_required": enabled, "role": role}
+
+    @app.post("/auth/login")
+    async def auth_login(req: LoginRequest, response: Response) -> dict:
+        if not ui_auth_enabled(config):
+            raise HTTPException(status_code=400, detail="UI authentication is not configured.")
+        role = authenticate_password(config, req.password)
+        if not role:
+            raise HTTPException(status_code=401, detail="Invalid password.")
+        set_session_cookie(response, config, role)
+        return {"role": role}
+
+    @app.post("/auth/logout")
+    async def auth_logout(response: Response) -> dict:
+        clear_session_cookie(response)
+        return {"status": "ok"}
+
     @app.get("/config/providers")
-    async def provider_config() -> dict:
+    async def provider_config(request: Request) -> dict:
+        require_ui_role(request, config, "admin")
         return {"providers": get_provider_order(config.db_path)}
 
     @app.put("/config/providers")
-    async def update_provider_config(req: ProviderOrderRequest) -> dict:
+    async def update_provider_config(req: ProviderOrderRequest, request: Request) -> dict:
+        require_ui_role(request, config, "admin")
         try:
             set_provider_order(config.db_path, req.providers)
         except ValueError as e:
@@ -948,7 +1157,8 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
         return {"providers": req.providers}
 
     @app.get("/reviews")
-    async def reviews(page: int = 1, per_page: int = 10) -> dict:
+    async def reviews(request: Request, page: int = 1, per_page: int = 10) -> dict:
+        require_ui_role(request, config, "user")
         page = max(page, 1)
         per_page = min(max(per_page, 1), 100)
         offset = (page - 1) * per_page
@@ -979,6 +1189,7 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
 
     @app.post("/review")
     async def review(req: ReviewRequest, request: Request) -> dict:
+        require_ui_role(request, config, "user")
         require_review_hook_secret(request, config, require_configured=False)
         try:
             repo_slug, pr_id = parse_pr_url(req.pr_url, config.bitbucket_workspace)
@@ -991,11 +1202,13 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
             raise HTTPException(status_code=502, detail=f"Review failed: {e}")
 
     @app.get("/reviews/queue")
-    async def get_review_queue() -> dict:
+    async def get_review_queue(request: Request) -> dict:
+        require_ui_role(request, config, "user")
         return {"items": review_queue.list_items()}
 
     @app.post("/reviews/queue")
     async def enqueue_reviews(req: QueueReviewsRequest, request: Request) -> dict:
+        require_ui_role(request, config, "user")
         require_review_hook_secret(request, config, require_configured=False)
         return enqueue_review_request(
             review_queue,
