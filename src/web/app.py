@@ -1,3 +1,4 @@
+import asyncio
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from src.db import count_reviews, get_provider_order, init_db, list_recent_revie
 from src.pr_url import parse_pr_url
 from src.review_runner import write_cursor_mcp_config, write_kiro_mcp_config, write_mcp_config
 from src.web.enqueue import enqueue_review_request
+from src.web.provider_auth import collect_provider_login_status
 from src.web.hook_auth import require_review_hook_secret
 from src.web.ui_auth import (
     authenticate_password,
@@ -304,6 +306,66 @@ _FORM_HTML = """<!doctype html>
   .panel { margin-bottom: 28px; }
   .panel[hidden] { display: none; }
 
+  .auth-status-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .auth-status-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+
+  .auth-status-name {
+    font-weight: 600;
+    font-size: 14px;
+    min-width: 4.5rem;
+  }
+
+  .auth-status-detail {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .auth-pill {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+
+  .auth-pill.ok { background: var(--ok-soft); color: var(--ok); }
+  .auth-pill.err { background: var(--err-soft); color: var(--err); }
+
+  .panel-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin: -4px 0 12px;
+  }
+
+  .panel-toolbar button {
+    font-size: 13px;
+    padding: 6px 12px;
+    background: var(--bg);
+    color: var(--text-dim);
+  }
+
   .stack {
     display: flex;
     flex-direction: column;
@@ -556,6 +618,18 @@ _FORM_HTML = """<!doctype html>
     </div>
   </div>
 
+  <section class="panel" id="provider-auth-panel" hidden>
+    <div class="log-header">
+      <h2>LLM login status</h2>
+    </div>
+    <div class="panel-toolbar">
+      <button type="button" id="refresh-provider-auth">Refresh</button>
+    </div>
+    <ul class="auth-status-list" id="provider-auth-list">
+      <li class="empty">Loading&hellip;</li>
+    </ul>
+  </section>
+
   <div class="card composer" id="drop-zone">
     <label class="composer-label" for="pr_urls_bulk">Pull request URLs</label>
     <textarea
@@ -634,6 +708,9 @@ const loginSubmit = document.getElementById("login-submit");
 const loginError = document.getElementById("login-error");
 const logoutBtn = document.getElementById("logout-btn");
 const roleBadge = document.getElementById("role-badge");
+const providerAuthPanel = document.getElementById("provider-auth-panel");
+const providerAuthList = document.getElementById("provider-auth-list");
+const refreshProviderAuthBtn = document.getElementById("refresh-provider-auth");
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 const logCountEl = document.getElementById("log-count");
@@ -707,16 +784,50 @@ function renderProviderList() {
 }
 
 function applyAuthUi() {
+  const isAdmin = !authRequired || currentRole === "admin";
   if (!authRequired) {
     providerSettingsBtn.hidden = false;
     logoutBtn.hidden = true;
     roleBadge.hidden = true;
+    providerAuthPanel.hidden = !isAdmin;
     return;
   }
   logoutBtn.hidden = false;
   roleBadge.hidden = false;
   roleBadge.textContent = currentRole === "admin" ? "Admin" : "User";
   providerSettingsBtn.hidden = currentRole !== "admin";
+  providerAuthPanel.hidden = currentRole !== "admin";
+}
+
+function renderProviderAuthList(rows) {
+  if (!rows || !rows.length) {
+    providerAuthList.innerHTML = '<li class="empty">No providers found.</li>';
+    return;
+  }
+  providerAuthList.innerHTML = rows.map((row) => {
+    const name = row.provider === "kiro" ? "Kiro" : row.provider[0].toUpperCase() + row.provider.slice(1);
+    const pillClass = row.logged_in ? "ok" : "err";
+    const pillText = row.logged_in ? "Logged in" : "Not logged in";
+    const detail = row.summary || "";
+    return `<li class="auth-status-item">
+      <span class="auth-status-name">${name}</span>
+      <span class="auth-status-detail" title="${detail.replace(/"/g, "&quot;")}">${detail}</span>
+      <span class="auth-pill ${pillClass}">${pillText}</span>
+    </li>`;
+  }).join("");
+}
+
+async function loadProviderAuthStatus() {
+  if (providerAuthPanel.hidden) return;
+  providerAuthList.innerHTML = '<li class="empty">Loading&hellip;</li>';
+  try {
+    const res = await apiFetch("/admin/provider-login-status");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Could not load login status.");
+    renderProviderAuthList(data.providers);
+  } catch (error) {
+    providerAuthList.innerHTML = `<li class="empty">${error.message || "Could not load login status."}</li>`;
+  }
 }
 
 async function initAuth() {
@@ -760,6 +871,7 @@ async function submitLogin() {
     appShell.hidden = false;
     loadReviews();
     loadQueue();
+    loadProviderAuthStatus();
   } catch (error) {
     loginError.textContent = error.message || "Could not sign in.";
   } finally {
@@ -771,6 +883,8 @@ loginSubmit.addEventListener("click", submitLogin);
 loginPassword.addEventListener("keydown", (event) => {
   if (event.key === "Enter") submitLogin();
 });
+refreshProviderAuthBtn.addEventListener("click", loadProviderAuthStatus);
+
 logoutBtn.addEventListener("click", async () => {
   await apiFetch("/auth/logout", { method: "POST" });
   currentRole = null;
@@ -1075,6 +1189,7 @@ dropZone.addEventListener("drop", async (event) => {
   if (!ready) return;
   loadReviews();
   loadQueue();
+  loadProviderAuthStatus();
   setInterval(() => {
     if (currentPage === 1) loadReviews(1);
   }, 15000);
@@ -1158,6 +1273,12 @@ def create_app(config: Config, client: BitbucketClient | None = None) -> FastAPI
     async def auth_logout(request: Request, response: Response) -> dict:
         clear_session_cookie(response, request)
         return {"status": "ok"}
+
+    @app.get("/admin/provider-login-status")
+    async def provider_login_status(request: Request) -> dict:
+        require_ui_role(request, config, "admin")
+        providers = await asyncio.to_thread(collect_provider_login_status)
+        return {"providers": providers}
 
     @app.get("/config/providers")
     async def provider_config(request: Request) -> dict:
